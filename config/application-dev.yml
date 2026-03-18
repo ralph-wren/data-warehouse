@@ -1,0 +1,26 @@
+# 开发环境配置
+# 覆盖 application.yml 中的配置
+
+# Kafka 配置
+kafka:
+  bootstrap-servers: localhost:9092
+
+# Doris 配置
+doris:
+  fe:
+    http-url: http://127.0.0.1:8030
+    jdbc-url: jdbc:mysql://127.0.0.1:9030
+    username: root
+    password: ""
+
+# Flink 配置
+flink:
+  execution:
+    parallelism: 2
+  checkpoint:
+    interval: 30000
+
+# 应用配置
+application:
+  logging:
+    level: DEBUG

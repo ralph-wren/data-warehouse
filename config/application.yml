@@ -1,0 +1,127 @@
+# 实时加密货币数据仓库配置文件
+# 支持从环境变量读取敏感信息
+# 格式: ${ENV_VAR_NAME} 会从环境变量读取
+
+# OKX 交易所配置
+okx:
+  # WebSocket API 配置
+  websocket:
+    url: wss://ws.okx.com:8443/ws/v5/public
+    reconnect:
+      max-retries: 10
+      initial-delay: 1000
+      max-delay: 60000
+  
+  # API 认证信息（从环境变量读取）
+  api:
+    key: ${OKX_API_KEY}
+    secret: ${OKX_SECRET_KEY}
+    passphrase: ${OKX_PASSPHRASE}
+  
+  # 订阅的交易对列表
+  symbols:
+    - BTC-USDT
+    - ETH-USDT
+    - SOL-USDT
+    - BNB-USDT
+    - XRP-USDT
+    - ADA-USDT
+    - DOGE-USDT
+    - MATIC-USDT
+
+# Kafka 配置
+kafka:
+  bootstrap-servers: localhost:9092
+  
+  # Topic 配置
+  topic:
+    crypto-ticker: crypto_ticker
+  
+  # Producer 配置
+  producer:
+    acks: 1
+    retries: 3
+    batch-size: 16384
+    linger-ms: 10
+    compression-type: lz4
+    max-in-flight-requests: 5
+  
+  # Consumer 配置
+  consumer:
+    group-id: flink-ods-consumer
+    auto-offset-reset: latest
+    enable-auto-commit: false
+    max-poll-records: 500
+
+# Doris 配置
+doris:
+  # FE 节点配置
+  fe:
+    http-url: http://127.0.0.1:8030
+    jdbc-url: jdbc:mysql://127.0.0.1:9030
+    username: root
+    password: ""
+  
+  # 数据库配置
+  database: crypto_dw
+  
+  # Stream Load 配置
+  stream-load:
+    batch-size: 1000
+    batch-interval-ms: 5000
+    max-retries: 3
+    timeout-seconds: 600
+    max-filter-ratio: 0.1
+  
+  # 表配置
+  tables:
+    ods: ods_crypto_ticker_rt
+    dwd: dwd_crypto_ticker_detail
+    dws-1min: dws_crypto_ticker_1min
+    dws-5min: dws_crypto_ticker_5min
+    ads: ads_crypto_market_overview
+
+# Flink 配置
+flink:
+  # 执行环境配置
+  execution:
+    parallelism: 4
+    max-parallelism: 128
+  
+  # Checkpoint 配置
+  checkpoint:
+    interval: 60000
+    mode: EXACTLY_ONCE
+    timeout: 600000
+    min-pause: 500
+    max-concurrent: 1
+  
+  # 状态后端配置
+  state:
+    backend: rocksdb
+    checkpoint-dir: file:///tmp/flink-checkpoints
+    savepoint-dir: file:///tmp/flink-savepoints
+
+# 应用配置
+application:
+  # 日志配置
+  logging:
+    level: INFO
+    file: logs/crypto-dw.log
+    max-file-size: 100MB
+    max-history: 30
+  
+  # 监控配置
+  metrics:
+    enabled: true
+    interval: 60
+  
+  # 数据质量配置
+  data-quality:
+    # 时间戳容忍度（毫秒）
+    timestamp-tolerance: 3600000
+    # 价格范围验证
+    price-min: 0.00000001
+    price-max: 10000000
+    # 去重窗口（毫秒）
+    dedup-window: 5000

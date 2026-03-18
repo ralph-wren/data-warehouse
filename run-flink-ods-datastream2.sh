@@ -16,10 +16,11 @@ echo ""
 export MAVEN_OPTS="--add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED"
 
 mvn exec:java \
-    -Dexec.mainClass="com.crypto.dw.flink.FlinkODSJobDataStream" \
+    -Dexec.mainClass="com.crypto.dw.flink.FlinkODSJobDataStream2" \
     -Dexec.cleanupDaemonThreads=false
 
 echo ""
 echo "=========================================="
 echo "作业已完成"
 echo "=========================================="
+

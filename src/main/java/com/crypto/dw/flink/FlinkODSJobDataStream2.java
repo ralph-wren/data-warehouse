@@ -21,17 +21,17 @@ import org.slf4j.LoggerFactory;
 import java.util.Properties;
 
 /**
- * Flink ODS 作业 - 使用官方 Doris Connector
+ * Flink ODS 作业 - 使用官方 Doris Flink Connector
  * 从 Kafka 消费数据并写入 Doris ODS 层
  * 
- * 更新说明:
+ * 修复说明:
  * 1. 使用官方 DorisSink 替代自定义 HTTP Stream Load
- * 2. 兼容 Doris 3.1.x 版本
+ * 2. 官方 Connector 内部处理了 Doris 4.0.x 的兼容性问题
  * 3. 支持自动重试和错误处理
  */
-public class FlinkODSJobDataStream {
+public class FlinkODSJobDataStream2 {
     
-    private static final Logger logger = LoggerFactory.getLogger(FlinkODSJobDataStream.class);
+    private static final Logger logger = LoggerFactory.getLogger(FlinkODSJobDataStream2.class);
     
     public static void main(String[] args) throws Exception {
         System.out.println("==========================================");
@@ -46,11 +46,11 @@ public class FlinkODSJobDataStream {
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         
         // 设置并行度
-        int parallelism = config.getInt("flink.execution.parallelism", 2);
+        int parallelism = config.getInt("flink.execution.parallelism", 4);
         env.setParallelism(parallelism);
         
         // 启用 Checkpoint
-        long checkpointInterval = config.getLong("flink.checkpoint.interval", 30000);
+        long checkpointInterval = config.getLong("flink.checkpoint.interval", 60000);
         env.enableCheckpointing(checkpointInterval);
         
         System.out.println("Flink Environment:");

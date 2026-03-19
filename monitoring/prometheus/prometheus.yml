@@ -1,0 +1,56 @@
+# Prometheus 配置文件
+# 用于监控 Flink 任务
+
+global:
+  scrape_interval: 15s      # 抓取间隔
+  evaluation_interval: 15s  # 评估间隔
+  external_labels:
+    cluster: 'crypto-dw'
+    environment: 'dev'
+
+# 告警规则文件
+rule_files:
+  # - "alerts/*.yml"
+
+# 抓取配置
+scrape_configs:
+  # Prometheus 自身监控
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Pushgateway - 接收 Flink 推送的指标
+  - job_name: 'pushgateway'
+    honor_labels: true
+    static_configs:
+      - targets: ['pushgateway:9091']
+
+  # Flink JobManager - 如果使用 Standalone 模式
+  - job_name: 'flink-jobmanager'
+    static_configs:
+      - targets: ['host.docker.internal:8081']  # Flink Web UI 端口
+    metrics_path: '/metrics'
+    
+  # Flink TaskManager - 如果使用 Standalone 模式
+  - job_name: 'flink-taskmanager'
+    static_configs:
+      - targets: ['host.docker.internal:8081']
+    metrics_path: '/taskmanagers/metrics'
+
+  # Doris FE 监控
+  - job_name: 'doris-fe'
+    static_configs:
+      - targets: ['host.docker.internal:8030']
+    metrics_path: '/metrics'
+
+  # Doris BE 监控
+  - job_name: 'doris-be'
+    static_configs:
+      - targets: ['host.docker.internal:8040']
+    metrics_path: '/metrics'
+
+  # Kafka 监控 (如果启用了 JMX Exporter)
+  - job_name: 'kafka'
+    static_configs:
+      - targets: ['host.docker.internal:9092']
+    metrics_path: '/metrics'

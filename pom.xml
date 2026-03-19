@@ -105,6 +105,20 @@
             <version>1.6.2</version>
         </dependency>
 
+        <!-- Flink Metrics Prometheus - 用于导出指标到 Prometheus -->
+        <dependency>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-metrics-prometheus</artifactId>
+            <version>${flink.version}</version>
+        </dependency>
+
+        <!-- OSHI Core - 用于系统资源指标收集 -->
+        <dependency>
+            <groupId>com.github.oshi</groupId>
+            <artifactId>oshi-core</artifactId>
+            <version>6.4.0</version>
+        </dependency>
+
         <!-- Kafka Client -->
         <dependency>
             <groupId>org.apache.kafka</groupId>

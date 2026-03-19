@@ -1,6 +1,7 @@
 package com.crypto.dw.flink;
 
 import com.crypto.dw.config.ConfigLoader;
+import com.crypto.dw.config.MetricsConfig;
 import com.crypto.dw.model.TickerData;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.doris.flink.cfg.DorisExecutionOptions;
@@ -43,7 +44,7 @@ public class FlinkODSJobDataStream {
         // 加载配置
         ConfigLoader config = ConfigLoader.getInstance();
 
-        // 创建 Flink 执行环境（启用 Web UI）
+        // 创建 Flink 执行环境（启用 Web UI 和 Metrics）
         Configuration flinkConfig = new Configuration();
 
         // 启用 Web UI（注意：端口参数必须是 int 类型）
@@ -52,6 +53,17 @@ public class FlinkODSJobDataStream {
         flinkConfig.setInteger("rest.port", 8081);  // Web UI 端口
         flinkConfig.setString("rest.address", "localhost");  // 监听地址
         flinkConfig.setString("rest.bind-port", "8081-8090");  // 端口范围（字符串类型）
+        
+        // 配置 Prometheus Metrics（推送到 Pushgateway）
+        MetricsConfig.configurePushgatewayReporter(
+            flinkConfig,
+            "localhost",  // Pushgateway 主机
+            9091,         // Pushgateway 端口
+            "flink-ods-job"  // 作业名称
+        );
+        
+        // 配置通用 Metrics 选项
+        MetricsConfig.configureCommonMetrics(flinkConfig);
         
         // 创建 Flink 执行环境
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment(flinkConfig);

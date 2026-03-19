@@ -62,6 +62,11 @@ doris:
     username: root
     password: ""
   
+  # BE 节点配置 (可选,用于解决 Docker 网络问题)
+  # 如果 BE 使用 Docker 内部 IP,可以直接指定宿主机地址
+  be:
+    nodes: "127.0.0.1:8040"  # BE HTTP 地址,多个用逗号分隔
+  
   # 数据库配置
   database: crypto_dw
   

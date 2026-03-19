@@ -108,7 +108,7 @@ public class FlinkODSJobDataStream {
             .setBootstrapServers(config.getString("kafka.bootstrap-servers"))
             .setTopics(config.getString("kafka.topic.crypto-ticker"))
             .setGroupId(config.getString("kafka.consumer.group-id", "flink-ods-consumer"))
-            .setStartingOffsets(OffsetsInitializer.earliest())
+            .setStartingOffsets(OffsetsInitializer.latest())
             .setValueOnlyDeserializer(new SimpleStringSchema())
             .build();
     }
@@ -116,6 +116,8 @@ public class FlinkODSJobDataStream {
     /**
      * 创建官方 Doris Sink
      * 使用 Doris Flink Connector,内部处理了 HTTP 协议兼容性问题
+     * 
+     * 注意: 如果 BE 使用 Docker 内部 IP,需要配置 benodes 参数
      */
     private static DorisSink<String> createDorisSink(ConfigLoader config) {
         // 提取 FE 地址 (去掉 http:// 前缀)
@@ -132,6 +134,14 @@ public class FlinkODSJobDataStream {
             .setUsername(config.getString("doris.fe.username"))
             .setPassword(config.getString("doris.fe.password", ""));
         
+        // 关键修复: 如果 BE 使用 Docker 内部 IP,直接指定 BE 地址
+        // 这样可以绕过 FE 返回的内部 IP
+        String beNodes = config.getString("doris.be.nodes", "");
+        if (!beNodes.isEmpty()) {
+            dorisBuilder.setBenodes(beNodes);
+            logger.info("使用配置的 BE 节点: {}", beNodes);
+        }
+        
         // Stream Load 执行配置
         Properties streamLoadProp = new Properties();
         streamLoadProp.setProperty("format", "json");  // 数据格式
@@ -143,7 +153,7 @@ public class FlinkODSJobDataStream {
             .setMaxRetries(config.getInt("doris.stream-load.max-retries", 3))  // 最大重试次数
             .setBufferSize(config.getInt("doris.stream-load.batch-size", 1000) * 1024)  // 缓冲区大小 (字节)
             .setBufferCount(3)  // 缓冲区数量
-            .setLabelPrefix("flink-ods")  // Stream Load 标签前缀
+            .setLabelPrefix("flink-ods-" + System.currentTimeMillis())  // 使用时间戳作为 Label 前缀,避免重复
             .build();
         
         // 构建 DorisSink

@@ -94,6 +94,7 @@ public class FlinkODSJobDataStream {
         System.out.println("  Bootstrap Servers: " + config.getString("kafka.bootstrap-servers"));
         System.out.println("  Topic: " + config.getString("kafka.topic.crypto-ticker"));
         System.out.println("  Group ID: " + config.getString("kafka.consumer.group-id"));
+        System.out.println("  Startup Mode: " + config.getString("kafka.consumer.startup-mode", "earliest"));
         System.out.println();
         
         // 数据转换：JSON -> Doris 格式
@@ -124,13 +125,39 @@ public class FlinkODSJobDataStream {
     
     /**
      * 创建 Kafka Source
+     * 
+     * 消费模式说明：
+     * - earliest: 从最早的数据开始消费（适合处理历史数据）
+     * - latest: 从最新的数据开始消费（适合实时处理）
+     * - committed: 从上次提交的 offset 开始消费
      */
     private static KafkaSource<String> createKafkaSource(ConfigLoader config) {
+        // 读取消费模式配置，默认使用 earliest（从头开始消费）
+        String startupMode = config.getString("kafka.consumer.startup-mode", "earliest");
+        
+        // 根据配置选择消费模式
+        OffsetsInitializer offsetsInitializer;
+        switch (startupMode.toLowerCase()) {
+            case "latest":
+                offsetsInitializer = OffsetsInitializer.latest();
+                System.out.println("  Startup Mode: latest（从最新数据开始）");
+                break;
+            case "committed":
+                offsetsInitializer = OffsetsInitializer.committedOffsets();
+                System.out.println("  Startup Mode: committed（从上次提交的 offset 开始）");
+                break;
+            case "earliest":
+            default:
+                offsetsInitializer = OffsetsInitializer.earliest();
+                System.out.println("  Startup Mode: earliest（从最早数据开始）");
+                break;
+        }
+        
         return KafkaSource.<String>builder()
             .setBootstrapServers(config.getString("kafka.bootstrap-servers"))
             .setTopics(config.getString("kafka.topic.crypto-ticker"))
             .setGroupId(config.getString("kafka.consumer.group-id", "flink-ods-consumer"))
-            .setStartingOffsets(OffsetsInitializer.latest())
+            .setStartingOffsets(offsetsInitializer)  // 使用配置的消费模式
             .setValueOnlyDeserializer(new SimpleStringSchema())
             .build();
     }

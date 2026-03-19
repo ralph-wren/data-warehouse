@@ -4,6 +4,8 @@
 # Kafka 配置
 kafka:
   bootstrap-servers: localhost:9092
+  consumer:
+    startup-mode: earliest  # 消费模式: earliest（从头开始）, latest（从最新开始）, committed（从上次提交位置开始）
 
 # Doris 配置
 doris:

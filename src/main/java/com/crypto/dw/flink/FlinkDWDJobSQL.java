@@ -61,11 +61,32 @@ public class FlinkDWDJobSQL {
         System.out.println("==========================================");
         System.out.println();
         
-        tableEnv.executeSql(insertSQL);
+        // 执行 INSERT 语句并等待作业完成
+        // 注意：executeSql 对于 INSERT 语句会异步执行，需要调用 await() 等待
+        try {
+            logger.info("提交 Flink DWD SQL 作业...");
+            var tableResult = tableEnv.executeSql(insertSQL);
+            
+            logger.info("Flink DWD SQL 作业已提交，Job ID: {}", tableResult.getJobClient().get().getJobID());
+            System.out.println("✓ Flink DWD SQL 作业已启动");
+            System.out.println("✓ 作业将持续运行，处理 Kafka 数据并写入 Doris");
+            System.out.println("✓ 按 Ctrl+C 停止作业");
+            System.out.println();
+            
+            // 等待作业完成（流式作业会一直运行）
+            tableResult.await();
+            
+        } catch (Exception e) {
+            logger.error("Flink DWD SQL 作业执行失败", e);
+            System.err.println("✗ 作业执行失败: " + e.getMessage());
+            e.printStackTrace();
+            throw e;
+        }
     }
     
     /**
      * 创建 Kafka Source 表 DDL
+     * 注意：字段名必须与 Kafka 消息中的 JSON 字段名匹配
      */
     private static String createKafkaSourceDDL(ConfigLoader config) {
         String bootstrapServers = config.getString("kafka.bootstrap-servers");
@@ -73,24 +94,24 @@ public class FlinkDWDJobSQL {
         String groupId = "flink-dwd-consumer-sql";
         
         return "CREATE TABLE kafka_ods_source (\n" +
-               "    inst_id STRING,\n" +
-               "    `timestamp` BIGINT,\n" +
-               "    last_price DECIMAL(20, 8),\n" +
-               "    bid_price DECIMAL(20, 8),\n" +
-               "    ask_price DECIMAL(20, 8),\n" +
-               "    bid_size DECIMAL(20, 8),\n" +
-               "    ask_size DECIMAL(20, 8),\n" +
-               "    volume_24h DECIMAL(30, 8),\n" +
-               "    high_24h DECIMAL(20, 8),\n" +
-               "    low_24h DECIMAL(20, 8),\n" +
-               "    open_24h DECIMAL(20, 8),\n" +
+               "    instId STRING,\n" +  // 匹配 JSON 字段名
+               "    ts BIGINT,\n" +  // 匹配 JSON 字段名 (timestamp)
+               "    `last` STRING,\n" +  // 匹配 JSON 字段名，使用反引号因为 last 是关键字
+               "    bidPx STRING,\n" +  // 匹配 JSON 字段名
+               "    askPx STRING,\n" +  // 匹配 JSON 字段名
+               "    bidSz STRING,\n" +  // 匹配 JSON 字段名
+               "    askSz STRING,\n" +  // 匹配 JSON 字段名
+               "    volCcy24h STRING,\n" +  // 匹配 JSON 字段名
+               "    high24h STRING,\n" +  // 匹配 JSON 字段名
+               "    low24h STRING,\n" +  // 匹配 JSON 字段名
+               "    open24h STRING,\n" +  // 匹配 JSON 字段名
                "    proc_time AS PROCTIME()\n" +
                ") WITH (\n" +
                "    'connector' = 'kafka',\n" +
                "    'topic' = '" + topic + "',\n" +
                "    'properties.bootstrap.servers' = '" + bootstrapServers + "',\n" +
                "    'properties.group.id' = '" + groupId + "',\n" +
-               "    'scan.startup.mode' = 'latest-offset',\n" +
+               "    'scan.startup.mode' = 'earliest-offset',\n" +  // 从最早的数据开始消费
                "    'format' = 'json',\n" +
                "    'json.fail-on-missing-field' = 'false',\n" +
                "    'json.ignore-parse-errors' = 'true'\n" +
@@ -99,9 +120,11 @@ public class FlinkDWDJobSQL {
     
     /**
      * 创建 Doris DWD Sink 表 DDL
+     * 注意：必须指定 benodes 参数来覆盖自动发现的 BE 地址
      */
     private static String createDorisSinkDDL(ConfigLoader config) {
         String feNodes = config.getString("doris.fe.http-url").replace("http://", "");
+        String beNodes = config.getString("doris.be.nodes", "127.0.0.1:8040");  // 获取 BE 节点配置
         String database = config.getString("doris.database");
         String table = config.getString("doris.tables.dwd");
         String username = config.getString("doris.fe.username");
@@ -130,11 +153,13 @@ public class FlinkDWDJobSQL {
                ") WITH (\n" +
                "    'connector' = 'doris',\n" +
                "    'fenodes' = '" + feNodes + "',\n" +
+               "    'benodes' = '" + beNodes + "',\n" +  // 关键：指定 BE 节点地址
                "    'table.identifier' = '" + database + "." + table + "',\n" +
                "    'username' = '" + username + "',\n" +
                "    'password' = '" + password + "',\n" +
-               "    'sink.batch.size' = '1000',\n" +
-               "    'sink.batch.interval' = '5000ms',\n" +
+               "    -- 批量写入配置（使用正确的参数名称）\n" +
+               "    'sink.buffer-flush.max-rows' = '1000',\n" +
+               "    'sink.buffer-flush.interval' = '5s',\n" +
                "    'sink.max-retries' = '3',\n" +
                "    'sink.properties.format' = 'json',\n" +
                "    'sink.properties.read_json_by_line' = 'true'\n" +
@@ -143,51 +168,61 @@ public class FlinkDWDJobSQL {
     
     /**
      * 创建 INSERT INTO SQL（包含数据清洗和字段补充逻辑）
+     * 注意: 
+     * 1. 源表字段名匹配 Kafka JSON 格式（驼峰命名）
+     * 2. 需要将 STRING 类型转换为 DECIMAL 类型
+     * 3. 使用 Flink SQL 标准函数
      */
     private static String createInsertSQL() {
         return "INSERT INTO doris_dwd_sink\n" +
                "SELECT \n" +
-               "    inst_id,\n" +
-               "    `timestamp`,\n" +
-               "    -- 交易日期和小时\n" +
-               "    TO_DATE(FROM_UNIXTIME(`timestamp` / 1000)) as trade_date,\n" +
-               "    HOUR(FROM_UNIXTIME(`timestamp` / 1000)) as trade_hour,\n" +
-               "    -- 价格字段\n" +
-               "    last_price,\n" +
-               "    bid_price,\n" +
-               "    ask_price,\n" +
-               "    -- 计算买卖价差\n" +
-               "    (ask_price - bid_price) as spread,\n" +
-               "    -- 计算价差率\n" +
-               "    CASE \n" +
-               "        WHEN last_price > 0 THEN (ask_price - bid_price) / last_price\n" +
+               "    instId as inst_id,\n" +  // 字段名转换
+               "    ts as `timestamp`,\n" +  // 字段名转换
+               "    -- 交易日期和小时 (使用 TO_TIMESTAMP 将毫秒时间戳转换为 TIMESTAMP)\n" +
+               "    CAST(TO_TIMESTAMP(FROM_UNIXTIME(ts / 1000)) AS DATE) as trade_date,\n" +
+               "    CAST(EXTRACT(HOUR FROM TO_TIMESTAMP(FROM_UNIXTIME(ts / 1000))) AS INT) as trade_hour,\n" +
+               "    -- 价格字段（将 STRING 转换为 DECIMAL）\n" +
+               "    CAST(`last` AS DECIMAL(20, 8)) as last_price,\n" +
+               "    CAST(bidPx AS DECIMAL(20, 8)) as bid_price,\n" +
+               "    CAST(askPx AS DECIMAL(20, 8)) as ask_price,\n" +
+               "    -- 计算买卖价差（转换为 DECIMAL(20, 8)）\n" +
+               "    CAST((CAST(askPx AS DECIMAL(20, 8)) - CAST(bidPx AS DECIMAL(20, 8))) AS DECIMAL(20, 8)) as spread,\n" +
+               "    -- 计算价差率（转换为 DECIMAL(10, 6)）\n" +
+               "    CAST(CASE \n" +
+               "        WHEN CAST(`last` AS DECIMAL(20, 8)) > 0 THEN \n" +
+               "            (CAST(askPx AS DECIMAL(20, 8)) - CAST(bidPx AS DECIMAL(20, 8))) / CAST(`last` AS DECIMAL(20, 8))\n" +
                "        ELSE 0\n" +
-               "    END as spread_rate,\n" +
-               "    -- 成交量和价格\n" +
-               "    volume_24h,\n" +
-               "    high_24h,\n" +
-               "    low_24h,\n" +
-               "    open_24h,\n" +
-               "    -- 计算24小时涨跌额\n" +
-               "    CASE \n" +
-               "        WHEN open_24h > 0 THEN (last_price - open_24h)\n" +
+               "    END AS DECIMAL(10, 6)) as spread_rate,\n" +
+               "    -- 成交量和价格（将 STRING 转换为 DECIMAL）\n" +
+               "    CAST(volCcy24h AS DECIMAL(30, 8)) as volume_24h,\n" +
+               "    CAST(high24h AS DECIMAL(20, 8)) as high_24h,\n" +
+               "    CAST(low24h AS DECIMAL(20, 8)) as low_24h,\n" +
+               "    CAST(open24h AS DECIMAL(20, 8)) as open_24h,\n" +
+               "    -- 计算24小时涨跌额（转换为 DECIMAL(20, 8)）\n" +
+               "    CAST(CASE \n" +
+               "        WHEN CAST(open24h AS DECIMAL(20, 8)) > 0 THEN \n" +
+               "            (CAST(`last` AS DECIMAL(20, 8)) - CAST(open24h AS DECIMAL(20, 8)))\n" +
                "        ELSE 0\n" +
-               "    END as price_change_24h,\n" +
-               "    -- 计算24小时涨跌幅\n" +
-               "    CASE \n" +
-               "        WHEN open_24h > 0 THEN (last_price - open_24h) / open_24h\n" +
+               "    END AS DECIMAL(20, 8)) as price_change_24h,\n" +
+               "    -- 计算24小时涨跌幅（转换为 DECIMAL(10, 6)）\n" +
+               "    CAST(CASE \n" +
+               "        WHEN CAST(open24h AS DECIMAL(20, 8)) > 0 THEN \n" +
+               "            (CAST(`last` AS DECIMAL(20, 8)) - CAST(open24h AS DECIMAL(20, 8))) / CAST(open24h AS DECIMAL(20, 8))\n" +
                "        ELSE 0\n" +
-               "    END as price_change_rate_24h,\n" +
-               "    -- 计算24小时振幅\n" +
-               "    CASE \n" +
-               "        WHEN low_24h > 0 THEN (high_24h - low_24h) / low_24h\n" +
+               "    END AS DECIMAL(10, 6)) as price_change_rate_24h,\n" +
+               "    -- 计算24小时振幅（转换为 DECIMAL(10, 6)）\n" +
+               "    CAST(CASE \n" +
+               "        WHEN CAST(low24h AS DECIMAL(20, 8)) > 0 THEN \n" +
+               "            (CAST(high24h AS DECIMAL(20, 8)) - CAST(low24h AS DECIMAL(20, 8))) / CAST(low24h AS DECIMAL(20, 8))\n" +
                "        ELSE 0\n" +
-               "    END as amplitude_24h,\n" +
+               "    END AS DECIMAL(10, 6)) as amplitude_24h,\n" +
                "    -- 数据源和时间戳\n" +
-               "    'OKX' as data_source,\n" +
-               "    `timestamp` as ingest_time,\n" +
+               "    CAST('OKX' AS STRING) as data_source,\n" +
+               "    ts as ingest_time,\n" +
                "    UNIX_TIMESTAMP() * 1000 as process_time\n" +
                "FROM kafka_ods_source\n" +
-               "WHERE last_price > 0 AND bid_price > 0 AND ask_price > 0";
+               "WHERE CAST(`last` AS DECIMAL(20, 8)) > 0 \n" +
+               "  AND CAST(bidPx AS DECIMAL(20, 8)) > 0 \n" +
+               "  AND CAST(askPx AS DECIMAL(20, 8)) > 0";
     }
 }

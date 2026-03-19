@@ -33,9 +33,8 @@ echo ""
 echo "Starting Flink ODS SQL Job..."
 echo ""
 
-# 运行 Flink 作业
-java -cp target/realtime-crypto-datawarehouse-1.0.0.jar \
-    com.crypto.dw.flink.FlinkODSJobSQL
+# 运行 Flink 作业 (使用 Maven exec 插件,自动加载所有依赖)
+mvn exec:java -Dexec.mainClass="com.crypto.dw.flink.FlinkODSJobSQL"
 
 echo ""
 echo "Flink ODS SQL Job stopped."

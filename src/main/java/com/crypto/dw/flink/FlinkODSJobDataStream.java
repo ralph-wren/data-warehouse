@@ -11,6 +11,7 @@ import org.apache.doris.flink.sink.writer.serializer.SimpleStringSerializer;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
+import org.apache.flink.configuration.Configuration;
 import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer;
 import org.apache.flink.streaming.api.datastream.DataStream;
@@ -41,10 +42,19 @@ public class FlinkODSJobDataStream {
         
         // 加载配置
         ConfigLoader config = ConfigLoader.getInstance();
+
+        // 创建 Flink 执行环境（启用 Web UI）
+        Configuration flinkConfig = new Configuration();
+
+        // 启用 Web UI（注意：端口参数必须是 int 类型）
+        flinkConfig.setBoolean("web.submit.enable", true);
+        flinkConfig.setBoolean("web.cancel.enable", true);
+        flinkConfig.setInteger("rest.port", 8081);  // Web UI 端口
+        flinkConfig.setString("rest.address", "localhost");  // 监听地址
+        flinkConfig.setString("rest.bind-port", "8081-8090");  // 端口范围（字符串类型）
         
         // 创建 Flink 执行环境
-        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-        
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment(flinkConfig);
         // 设置并行度
         int parallelism = config.getInt("flink.execution.parallelism", 2);
         env.setParallelism(parallelism);
@@ -148,11 +158,20 @@ public class FlinkODSJobDataStream {
         streamLoadProp.setProperty("read_json_by_line", "true");  // 按行读取 JSON
         streamLoadProp.setProperty("strip_outer_array", "false");  // 不剥离外层数组
         
+        // 批量写入配置
+        int batchSize = config.getInt("doris.stream-load.batch-size", 1000);  // 批量行数
+        int batchIntervalMs = config.getInt("doris.stream-load.batch-interval-ms", 5000);  // 批量间隔（毫秒）
+        
         DorisExecutionOptions executionOptions = DorisExecutionOptions.builder()
             .setStreamLoadProp(streamLoadProp)  // Stream Load 属性
             .setMaxRetries(config.getInt("doris.stream-load.max-retries", 3))  // 最大重试次数
-            .setBufferSize(config.getInt("doris.stream-load.batch-size", 1000) * 1024)  // 缓冲区大小 (字节)
+            // 修复：setBufferSize 是字节数，不是行数，设置为 10MB
+            .setBufferSize(10 * 1024 * 1024)  // 缓冲区大小：10MB
             .setBufferCount(3)  // 缓冲区数量
+            // 修复：使用 setBufferFlushMaxRows 设置批量行数
+            .setBufferFlushMaxRows(batchSize)  // 批量行数：1000 行
+            // 修复：使用 setBufferFlushIntervalMs 设置批量间隔
+            .setBufferFlushIntervalMs(batchIntervalMs)  // 批量间隔：5000ms
             .setLabelPrefix("flink-ods-" + System.currentTimeMillis())  // 使用时间戳作为 Label 前缀,避免重复
             .build();
         

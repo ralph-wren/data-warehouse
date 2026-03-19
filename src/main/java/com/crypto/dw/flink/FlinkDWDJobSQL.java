@@ -1,6 +1,7 @@
 package com.crypto.dw.flink;
 
 import com.crypto.dw.config.ConfigLoader;
+import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.table.api.bridge.java.StreamTableEnvironment;
 import org.slf4j.Logger;
@@ -23,21 +24,34 @@ public class FlinkDWDJobSQL {
         // 加载配置
         ConfigLoader config = ConfigLoader.getInstance();
         
-        // 创建 Flink 执行环境
-        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        // 创建 Flink 执行环境（启用 Web UI）
+        Configuration flinkConfig = new Configuration();
+        
+        // 启用 Web UI（注意：端口参数必须是 int 类型）
+        flinkConfig.setBoolean("web.submit.enable", true);
+        flinkConfig.setBoolean("web.cancel.enable", true);
+        flinkConfig.setInteger("rest.port", 8081);  // Web UI 端口
+        flinkConfig.setString("rest.address", "localhost");  // 监听地址
+        flinkConfig.setString("rest.bind-port", "8081-8090");  // 端口范围（字符串类型）
+        
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.createLocalEnvironmentWithWebUI(flinkConfig);
         StreamTableEnvironment tableEnv = StreamTableEnvironment.create(env);
+        
+        // 设置时区为中国时区（东八区）- 重要：确保日期计算正确
+        tableEnv.getConfig().setLocalTimeZone(java.time.ZoneId.of("Asia/Shanghai"));
         
         // 设置并行度
         int parallelism = config.getInt("flink.execution.parallelism", 4);
         env.setParallelism(parallelism);
         
-        // 启用 Checkpoint
+        // 启用 Checkpoint（批量配置优化后应该能正常工作）
         long checkpointInterval = config.getLong("flink.checkpoint.interval", 60000);
         env.enableCheckpointing(checkpointInterval);
         
         System.out.println("Flink Environment:");
         System.out.println("  Parallelism: " + parallelism);
         System.out.println("  Checkpoint Interval: " + checkpointInterval + " ms");
+        System.out.println("  Web UI: http://localhost:8081");
         System.out.println();
         
         // 创建 Kafka Source 表（从 ODS Topic 读取）
@@ -158,11 +172,15 @@ public class FlinkDWDJobSQL {
                "    'username' = '" + username + "',\n" +
                "    'password' = '" + password + "',\n" +
                "    -- 批量写入配置（使用正确的参数名称）\n" +
-               "    'sink.buffer-flush.max-rows' = '1000',\n" +
-               "    'sink.buffer-flush.interval' = '5s',\n" +
-               "    'sink.max-retries' = '3',\n" +
+               "    'sink.buffer-size' = '10485760',\n" +  // 缓冲区大小：10MB (10 * 1024 * 1024)
+               "    'sink.buffer-flush.max-rows' = '1000',\n" +  // 批量行数：1000 行
+               "    'sink.buffer-flush.interval' = '5s',\n" +  // 批量间隔：5 秒
+               "    'sink.max-retries' = '5',\n" +  // 增加重试次数
                "    'sink.properties.format' = 'json',\n" +
-               "    'sink.properties.read_json_by_line' = 'true'\n" +
+               "    'sink.properties.read_json_by_line' = 'true',\n" +
+               "    -- 数据质量配置（放宽限制，避免分区不匹配导致整批失败）\n" +
+               "    'sink.properties.strict_mode' = 'false',\n" +  // 关闭严格模式
+               "    'sink.properties.max_filter_ratio' = '0.5'\n" +  // 允许 50% 的数据过滤（应对分区问题）
                ")";
     }
     

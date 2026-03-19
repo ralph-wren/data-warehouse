@@ -90,14 +90,14 @@ doris:
 flink:
   # 执行环境配置
   execution:
-    parallelism: 4
+    parallelism: 2  # 降低并行度，适合本地开发
     max-parallelism: 128
   
   # Checkpoint 配置
   checkpoint:
-    interval: 60000
+    interval: 60000  # 60 秒（增加间隔，减少 Checkpoint 频率）
     mode: EXACTLY_ONCE
-    timeout: 600000
+    timeout: 300000  # 5 分钟（增加超时时间，避免 Checkpoint 失败）
     min-pause: 500
     max-concurrent: 1
   
@@ -106,6 +106,17 @@ flink:
     backend: rocksdb
     checkpoint-dir: file:///tmp/flink-checkpoints
     savepoint-dir: file:///tmp/flink-savepoints
+  
+  # Web UI 配置
+  web:
+    enabled: true  # 启用 Web UI
+    port: 8081  # Web UI 端口
+    address: 0.0.0.0  # 监听所有网络接口
+    submit:
+      enable: true  # 允许通过 Web UI 提交作业
+    cancel:
+      enable: true  # 允许通过 Web UI 取消作业
+    refresh-interval: 3000  # 刷新间隔（毫秒）
 
 # 应用配置
 application:

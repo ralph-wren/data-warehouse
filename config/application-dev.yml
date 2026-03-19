@@ -18,7 +18,8 @@ flink:
   execution:
     parallelism: 2
   checkpoint:
-    interval: 30000
+    interval: 60000  # 60 秒（增加间隔，减少 Checkpoint 频率）
+    timeout: 300000  # 5 分钟（增加超时时间，避免 Checkpoint 失败）
 
 # 应用配置
 application:

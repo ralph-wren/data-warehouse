@@ -1,61 +1,43 @@
-# Compiled class file
-*.class
-
-# Log file
-*.log
-
-# BlueJ files
-*.ctxt
-
-# Mobile Tools for Java (J2ME)
-.mtj.tmp/
-
-# Package Files #
-*.jar
-*.war
-*.nar
-*.ear
-*.zip
-*.tar.gz
-*.rar
-
-# virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
-hs_err_pid*
-replay_pid*
-
-# Environment variables
-.env
-
-# IDE
-.idea/
-.vscode/
-*.iml
-*.ipr
-*.iws
-
 # Maven
 target/
+dependency-reduced-pom.xml
 pom.xml.tag
 pom.xml.releaseBackup
 pom.xml.versionsBackup
 pom.xml.next
 release.properties
-dependency-reduced-pom.xml
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+*~
 
 # Logs
 logs/
+*.log
 *.log.*
+*.log.gz
 
 # Flink
+.flink/
 flink-checkpoints/
 flink-savepoints/
+/tmp/
 
-# Temporary files
-*.tmp
-*.bak
-*.swp
-*~
+# Kafka
+kafka-logs/
+
+# Environment
+.env
+.env.local
 
 # OS
 .DS_Store
 Thumbs.db
+
+# Test
+test/*.log
+test/test-webui.log

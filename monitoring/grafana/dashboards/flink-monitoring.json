@@ -1,20 +1,18 @@
 {
   "annotations": {
-    "list": [
-      {
-        "builtIn": 1,
-        "datasource": "-- Grafana --",
-        "enable": true,
-        "hide": true,
-        "iconColor": "rgba(0, 211, 255, 1)",
-        "name": "Annotations & Alerts",
-        "type": "dashboard"
-      }
-    ]
+    "list": [{
+      "builtIn": 1,
+      "datasource": "-- Grafana --",
+      "enable": true,
+      "hide": true,
+      "iconColor": "rgba(0, 211, 255, 1)",
+      "name": "Annotations & Alerts",
+      "type": "dashboard"
+    }]
   },
   "editable": true,
   "gnetId": null,
-  "graphTooltip": 0,
+  "graphTooltip": 1,
   "id": null,
   "links": [],
   "panels": [
@@ -22,194 +20,206 @@
       "datasource": "Prometheus",
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
+          "color": {"mode": "palette-classic"},
           "custom": {
-            "axisLabel": "",
+            "axisLabel": "记录数/秒",
             "axisPlacement": "auto",
-            "barAlignment": 0,
             "drawStyle": "line",
             "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": {
-              "tooltip": false,
-              "viz": false,
-              "legend": false
-            },
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
+            "lineWidth": 2,
             "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "never",
-            "spanNulls": true
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
+            "showPoints": "never"
           },
           "unit": "short"
-        },
-        "overrides": []
+        }
       },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 0
-      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
       "id": 1,
       "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "single"
-        }
+        "legend": {"displayMode": "list", "placement": "bottom"},
+        "tooltip": {"mode": "multi"}
       },
-      "pluginVersion": "8.0.0",
-      "targets": [
-        {
-          "expr": "flink_taskmanager_job_task_numRecordsInPerSecond",
-          "refId": "A",
-          "legendFormat": "Records In/s - {{job_name}}"
-        }
-      ],
-      "title": "Flink 数据流入速率",
+      "targets": [{
+        "expr": "rate(flink_taskmanager_job_task_numRecordsIn{job_id!=\"\"}[1m])",
+        "legendFormat": "{{job_name}} - {{task_name}}",
+        "refId": "A"
+      }],
+      "title": "数据流入速率 (Records/s)",
       "type": "timeseries"
     },
     {
       "datasource": "Prometheus",
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
+          "color": {"mode": "palette-classic"},
           "custom": {
-            "axisLabel": "",
+            "axisLabel": "记录数/秒",
             "axisPlacement": "auto",
-            "barAlignment": 0,
             "drawStyle": "line",
             "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": {
-              "tooltip": false,
-              "viz": false,
-              "legend": false
-            },
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "never",
-            "spanNulls": true
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
+            "lineWidth": 2
           },
           "unit": "short"
-        },
-        "overrides": []
+        }
       },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 0
-      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
       "id": 2,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "single"
-        }
-      },
-      "pluginVersion": "8.0.0",
-      "targets": [
-        {
-          "expr": "flink_taskmanager_job_task_numRecordsOutPerSecond",
-          "refId": "A",
-          "legendFormat": "Records Out/s - {{job_name}}"
-        }
-      ],
-      "title": "Flink 数据流出速率",
+      "targets": [{
+        "expr": "rate(flink_taskmanager_job_task_numRecordsOut{job_id!=\"\"}[1m])",
+        "legendFormat": "{{job_name}} - {{task_name}}",
+        "refId": "A"
+      }],
+      "title": "数据流出速率 (Records/s)",
       "type": "timeseries"
     },
     {
       "datasource": "Prometheus",
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
+          "color": {"mode": "thresholds"},
           "thresholds": {
-            "mode": "absolute",
             "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 5000},
+              {"color": "red", "value": 10000}
+            ]
+          },
+          "unit": "ms"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "id": 3,
+      "targets": [{
+        "expr": "flink_jobmanager_job_lastCheckpointDuration{job_id!=\"\"}",
+        "legendFormat": "{{job_name}}",
+        "refId": "A"
+      }],
+      "title": "Checkpoint 持续时间",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "id": 4,
+      "targets": [
+        {
+          "expr": "flink_jobmanager_job_numberOfCompletedCheckpoints{job_id!=\"\"}",
+          "legendFormat": "完成 - {{job_name}}",
+          "refId": "A"
+        },
+        {
+          "expr": "flink_jobmanager_job_numberOfFailedCheckpoints{job_id!=\"\"}",
+          "legendFormat": "失败 - {{job_name}}",
+          "refId": "B"
+        }
+      ],
+      "title": "Checkpoint 统计",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 70},
+              {"color": "red", "value": 85}
+            ]
+          },
+          "unit": "percent",
+          "max": 100,
+          "min": 0
+        }
+      },
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 16},
+      "id": 5,
+      "targets": [{
+        "expr": "flink_taskmanager_Status_JVM_Memory_Heap_Used / flink_taskmanager_Status_JVM_Memory_Heap_Max * 100",
+        "legendFormat": "{{tm_id}}",
+        "refId": "A"
+      }],
+      "title": "JVM 堆内存使用率",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 60},
+              {"color": "red", "value": 80}
+            ]
+          },
+          "unit": "percent",
+          "max": 100,
+          "min": 0
+        }
+      },
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 16},
+      "id": 6,
+      "targets": [{
+        "expr": "flink_taskmanager_Status_JVM_CPU_Load * 100",
+        "legendFormat": "{{tm_id}}",
+        "refId": "A"
+      }],
+      "title": "JVM CPU 使用率",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 16},
+      "id": 7,
+      "targets": [{
+        "expr": "flink_taskmanager_Status_JVM_Threads_Count",
+        "legendFormat": "{{tm_id}}",
+        "refId": "A"
+      }],
+      "title": "JVM 线程数",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "red", "value": 1}
             ]
           },
           "unit": "short"
-        },
-        "overrides": []
+        }
       },
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 0,
-        "y": 8
-      },
-      "id": 3,
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 24},
+      "id": 8,
       "options": {
         "orientation": "auto",
-        "reduceOptions": {
-          "values": false,
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": ""
-        },
+        "reduceOptions": {"calcs": ["lastNotNull"]},
         "showThresholdLabels": false,
-        "showThresholdMarkers": true,
-        "text": {}
+        "showThresholdMarkers": true
       },
-      "pluginVersion": "8.0.0",
-      "targets": [
-        {
-          "expr": "flink_jobmanager_numRunningJobs",
-          "refId": "A"
-        }
-      ],
+      "targets": [{
+        "expr": "flink_jobmanager_numRunningJobs",
+        "refId": "A"
+      }],
       "title": "运行中的作业数",
       "type": "gauge"
     },
@@ -217,68 +227,198 @@
       "datasource": "Prometheus",
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
+          "color": {"mode": "thresholds"},
           "thresholds": {
-            "mode": "absolute",
             "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
+              {"color": "green", "value": null}
             ]
           },
           "unit": "short"
-        },
-        "overrides": []
+        }
       },
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 6,
-        "y": 8
-      },
-      "id": 4,
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 24},
+      "id": 9,
       "options": {
         "orientation": "auto",
-        "reduceOptions": {
-          "values": false,
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": ""
-        },
+        "reduceOptions": {"calcs": ["lastNotNull"]},
         "showThresholdLabels": false,
-        "showThresholdMarkers": true,
-        "text": {}
+        "showThresholdMarkers": true
       },
-      "pluginVersion": "8.0.0",
-      "targets": [
-        {
-          "expr": "flink_jobmanager_numRegisteredTaskManagers",
-          "refId": "A"
-        }
-      ],
+      "targets": [{
+        "expr": "flink_jobmanager_numRegisteredTaskManagers",
+        "refId": "A"
+      }],
       "title": "TaskManager 数量",
       "type": "gauge"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "steps": [
+              {"color": "green", "value": null}
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 24},
+      "id": 10,
+      "options": {
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"]},
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "targets": [{
+        "expr": "flink_jobmanager_taskSlotsAvailable",
+        "refId": "A"
+      }],
+      "title": "可用任务槽",
+      "type": "gauge"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "steps": [
+              {"color": "green", "value": null}
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 24},
+      "id": 11,
+      "options": {
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"]},
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "targets": [{
+        "expr": "flink_jobmanager_taskSlotsTotal",
+        "refId": "A"
+      }],
+      "title": "总任务槽",
+      "type": "gauge"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "unit": "bytes"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 28},
+      "id": 12,
+      "targets": [
+        {
+          "expr": "flink_taskmanager_Status_JVM_Memory_Heap_Used",
+          "legendFormat": "Heap Used - {{tm_id}}",
+          "refId": "A"
+        },
+        {
+          "expr": "flink_taskmanager_Status_JVM_Memory_Heap_Max",
+          "legendFormat": "Heap Max - {{tm_id}}",
+          "refId": "B"
+        }
+      ],
+      "title": "JVM 堆内存详情",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 28},
+      "id": 13,
+      "targets": [
+        {
+          "expr": "rate(flink_taskmanager_Status_JVM_GarbageCollector_G1_Young_Generation_Count[1m])",
+          "legendFormat": "Young GC - {{tm_id}}",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(flink_taskmanager_Status_JVM_GarbageCollector_G1_Old_Generation_Count[1m])",
+          "legendFormat": "Old GC - {{tm_id}}",
+          "refId": "B"
+        }
+      ],
+      "title": "GC 频率 (次/分钟)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 0.5},
+              {"color": "red", "value": 0.8}
+            ]
+          },
+          "unit": "percentunit",
+          "max": 1,
+          "min": 0
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 36},
+      "id": 14,
+      "targets": [{
+        "expr": "flink_taskmanager_job_task_buffers_outPoolUsage{job_id!=\"\"}",
+        "legendFormat": "{{job_name}} - {{task_name}}",
+        "refId": "A"
+      }],
+      "title": "输出缓冲池使用率（背压指标）",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "unit": "bytes"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 36},
+      "id": 15,
+      "targets": [
+        {
+          "expr": "rate(flink_taskmanager_job_task_numBytesIn{job_id!=\"\"}[1m])",
+          "legendFormat": "Bytes In - {{job_name}}",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(flink_taskmanager_job_task_numBytesOut{job_id!=\"\"}[1m])",
+          "legendFormat": "Bytes Out - {{job_name}}",
+          "refId": "B"
+        }
+      ],
+      "title": "网络吞吐量 (Bytes/s)",
+      "type": "timeseries"
     }
   ],
   "refresh": "5s",
   "schemaVersion": 27,
   "style": "dark",
-  "tags": ["flink", "monitoring"],
-  "templating": {
-    "list": []
-  },
-  "time": {
-    "from": "now-15m",
-    "to": "now"
-  },
+  "tags": ["flink", "monitoring", "crypto-dw"],
+  "templating": {"list": []},
+  "time": {"from": "now-15m", "to": "now"},
   "timepicker": {},
   "timezone": "Asia/Shanghai",
-  "title": "Flink 实时监控",
-  "uid": "flink-monitoring",
-  "version": 1
+  "title": "Flink 实时监控（增强版）",
+  "uid": "flink-monitoring-enhanced",
+  "version": 2
 }

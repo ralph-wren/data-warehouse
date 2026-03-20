@@ -3,6 +3,7 @@ package com.crypto.dw.flink;
 import com.alibaba.fastjson2.JSONObject;
 import com.crypto.dw.config.ConfigLoader;
 import com.crypto.dw.config.MetricsConfig;
+import com.crypto.dw.flink.watermark.WatermarkStrategyFactory;
 import com.crypto.dw.model.TickerData;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.doris.flink.cfg.DorisExecutionOptions;
@@ -54,6 +55,7 @@ public class FlinkODSJobDataStream {
         flinkConfig.setInteger("rest.port", 8081);  // Web UI 端口
         flinkConfig.setString("rest.address", "localhost");  // 监听地址
         flinkConfig.setString("rest.bind-port", "8081-8090");  // 端口范围（字符串类型）
+        flinkConfig.setBoolean("rest.flamegraph.enabled",true);
         
         // 配置 Prometheus Metrics（推送到 Pushgateway）
         MetricsConfig.configurePushgatewayReporter(
@@ -87,7 +89,7 @@ public class FlinkODSJobDataStream {
         // 创建数据流
         DataStream<String> rawStream = env.fromSource(
             kafkaSource,
-            WatermarkStrategy.noWatermarks(),
+                WatermarkStrategyFactory.forBoundedOutOfOrdernessString(5),
             "Kafka Source"
         );
         
@@ -100,7 +102,7 @@ public class FlinkODSJobDataStream {
         
         // 数据转换：JSON -> Doris 格式
         DataStream<String> odsStream = rawStream
-            .map(new ODSTransformFunction())
+            .map(new ODSTransformFunction()).disableChaining()
             .name("ODS Transform");
         
         // 配置官方 Doris Sink

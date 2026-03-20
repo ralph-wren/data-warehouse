@@ -77,15 +77,13 @@ services:
     container_name: kafka-jmx-exporter
     ports:
       - "5556:5556"
-    environment:
-      - SERVICE_PORT=5556
     volumes:
       - ./monitoring/jmx-exporter/kafka.yml:/etc/jmx-exporter/config.yml:ro
-    # JMX Exporter 启动参数: 端口 配置文件 JMX主机:端口
+    # JMX Exporter 启动参数: [HOST:]PORT CONFIG_FILE
+    # JMX 连接地址在配置文件中通过 hostPort 指定
     command:
       - "5556"
       - "/etc/jmx-exporter/config.yml"
-      - "host.docker.internal:9999"
     networks:
       - monitoring-net
     restart: unless-stopped

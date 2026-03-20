@@ -1,6 +1,10 @@
 # Kafka JMX Exporter 配置文件
 # 用于将 Kafka JMX 指标转换为 Prometheus 格式
 
+# JMX 连接配置
+# 使用 Kafka 容器名称直接连接（需要在同一 Docker 网络中）
+hostPort: kafka:9999
+
 # 输出指标名称转为小写
 lowercaseOutputName: true
 lowercaseOutputLabelNames: true

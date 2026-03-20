@@ -43,12 +43,25 @@ docker run -d \
   -e KAFKA_NUM_NETWORK_THREADS=3 \
   -e KAFKA_NUM_IO_THREADS=8 \
   -e CLUSTER_ID=MkU3OEVBNTcwNTJENDM2Qk \
-  -e KAFKA_JMX_OPTS="-Dcom.sun.management.jmxremote -Dcom.sun.management.jmxremote.port=9999 -Dcom.sun.management.jmxremote.rmi.port=9999 -Dcom.sun.management.jmxremote.authenticate=false -Dcom.sun.management.jmxremote.ssl=false -Djava.rmi.server.hostname=localhost" \
-  -e JMX_PORT=9999 \
+  -e KAFKA_JMX_HOSTNAME=kafka \
+  -e KAFKA_JMX_PORT=9999 \
+  -e KAFKA_JMX_OPTS="-Dcom.sun.management.jmxremote -Dcom.sun.management.jmxremote.port=9999 -Dcom.sun.management.jmxremote.rmi.port=9999 -Dcom.sun.management.jmxremote.authenticate=false -Dcom.sun.management.jmxremote.ssl=false -Djava.rmi.server.hostname=kafka -Djava.net.preferIPv4Stack=true" \
   --restart unless-stopped \
   confluentinc/cp-kafka:7.6.0
 
 echo "✓ Kafka 容器已启动"
+
+# 连接到监控网络
+echo ""
+echo "步骤 2.5: 连接 Kafka 到监控网络..."
+# 检查监控网络是否存在
+if docker network ls | grep -q "monitoring-net"; then
+    # 尝试连接到监控网络（如果已连接会报错，忽略）
+    docker network connect data-warehouse_monitoring-net kafka 2>/dev/null || echo "✓ Kafka 已在监控网络中"
+    echo "✓ Kafka 已连接到监控网络"
+else
+    echo "⚠ 监控网络不存在，请先启动监控服务"
+fi
 
 # 等待 Kafka 启动
 echo ""
@@ -80,8 +93,8 @@ echo ""
 echo "步骤 6: 重新创建 crypto_ticker Topic..."
 sleep 5
 # Kafka 命令在 /usr/bin/ 目录下，没有 .sh 后缀
-# 设置 KAFKA_JMX_OPTS 为空，完全禁用 JMX，避免端口冲突
-docker exec kafka bash -c "KAFKA_JMX_OPTS='' kafka-topics \
+# 使用 env -i 清除所有环境变量，只保留必要的 PATH，避免 JMX 端口冲突
+docker exec kafka bash -c "env -i PATH=/usr/bin kafka-topics \
     --create \
     --topic crypto_ticker \
     --bootstrap-server localhost:9092 \
@@ -97,7 +110,7 @@ echo "✓ Topic 创建成功"
 # 列出所有 Topic
 echo ""
 echo "步骤 7: 验证 Topic..."
-docker exec kafka bash -c "KAFKA_JMX_OPTS='' kafka-topics \
+docker exec kafka bash -c "env -i PATH=/usr/bin kafka-topics \
     --list \
     --bootstrap-server localhost:9092"
 

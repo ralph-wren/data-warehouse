@@ -56,14 +56,29 @@ echo ""
 
 # 运行数据采集器
 echo "启动数据采集器..."
-echo "订阅交易对: ${1:-BTC-USDT}"
-echo ""
-echo "按 Ctrl+C 停止"
-echo "=========================================="
-echo ""
-
-# 运行主程序
-mvn exec:java \
-    -Dexec.mainClass="com.crypto.dw.collector.DataCollectorMain" \
-    -Dexec.args="${1:-BTC-USDT}" \
-    -Dexec.cleanupDaemonThreads=false
+if [ $# -eq 0 ]; then
+    # 不带参数时，从配置文件读取交易对
+    echo "订阅交易对: 从配置文件读取 (application-$APP_ENV.yml)"
+    echo ""
+    echo "按 Ctrl+C 停止"
+    echo "=========================================="
+    echo ""
+    
+    # 运行主程序（不传递参数）
+    mvn exec:java \
+        -Dexec.mainClass="com.crypto.dw.collector.DataCollectorMain" \
+        -Dexec.cleanupDaemonThreads=false
+else
+    # 带参数时，使用命令行参数
+    echo "订阅交易对: $@"
+    echo ""
+    echo "按 Ctrl+C 停止"
+    echo "=========================================="
+    echo ""
+    
+    # 运行主程序（传递参数）
+    mvn exec:java \
+        -Dexec.mainClass="com.crypto.dw.collector.DataCollectorMain" \
+        -Dexec.args="$*" \
+        -Dexec.cleanupDaemonThreads=false
+fi

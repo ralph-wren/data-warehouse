@@ -5,6 +5,7 @@ import com.crypto.dw.kafka.KafkaProducerManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -105,19 +106,42 @@ public class DataCollectorMain {
     
     /**
      * 获取订阅的交易对列表
+     * 
+     * 注意：为了让数据均匀分布到 Kafka 的多个分区，建议订阅多个交易对
+     * Kafka 使用 key（交易对名称）的 hash 值来决定分区，不同的交易对会分布到不同分区
      */
     private static List<String> getSymbols(String[] args, ConfigLoader config) {
         // 如果命令行参数提供了交易对，使用命令行参数
         if (args.length > 0) {
+            logger.info("Using symbols from command line arguments: {}", Arrays.toString(args));
             return Arrays.asList(args);
         }
         
-        // 否则从配置文件读取
-        // 注意：ConfigLoader 需要支持读取列表，这里先使用默认值
-        // 可以后续扩展 ConfigLoader 支持列表类型
+        // 尝试从配置文件读取（支持逗号分隔的字符串）
+        String symbolsConfig = config.getString("okx.symbols", "");
+        logger.info("Reading okx.symbols from config: '{}'", symbolsConfig); // 添加调试日志
         
-        // 默认只订阅 BTC-USDT
-        return Arrays.asList("BTC-USDT");
+        if (!symbolsConfig.isEmpty()) {
+            // 支持逗号分隔的多个交易对
+            String[] symbolArray = symbolsConfig.split(",");
+            List<String> symbols = new ArrayList<>();
+            for (String symbol : symbolArray) {
+                String trimmed = symbol.trim();
+                if (!trimmed.isEmpty()) {
+                    symbols.add(trimmed);
+                }
+            }
+            if (!symbols.isEmpty()) {
+                logger.info("Using symbols from config file: {}", symbols);
+                return symbols;
+            }
+        }
+        
+        // 默认订阅 4 个主流交易对（对应 4 个 Kafka 分区）
+        // 这样数据会均匀分布到不同分区
+        List<String> defaultSymbols = Arrays.asList("BTC-USDT", "ETH-USDT", "SOL-USDT", "BNB-USDT");
+        logger.info("Config not found or empty, using default symbols: {}", defaultSymbols);
+        return defaultSymbols;
     }
     
     /**

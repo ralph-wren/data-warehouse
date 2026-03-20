@@ -1,6 +1,12 @@
 # 开发环境配置
 # 覆盖 application.yml 中的配置
 
+# OKX 配置
+okx:
+  # 订阅的交易对（逗号分隔）
+  # 4 个交易对对应 4 个 Kafka 分区，数据会均匀分布
+  symbols: BTC-USDT,ETH-USDT,SOL-USDT,BNB-USDT,TRUMP-USDT,XRP-USDT,LTC-USDT,BCH-USDT,NMR-USDT,RECALL-USDT,PUMP-USDT
+
 # Kafka 配置
 kafka:
   bootstrap-servers: localhost:9092
@@ -18,7 +24,7 @@ doris:
 # Flink 配置
 flink:
   execution:
-    parallelism: 2
+    parallelism: 4
   checkpoint:
     interval: 60000  # 60 秒（增加间隔，减少 Checkpoint 频率）
     timeout: 300000  # 5 分钟（增加超时时间，避免 Checkpoint 失败）

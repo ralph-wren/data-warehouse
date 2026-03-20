@@ -1,5 +1,6 @@
 package com.crypto.dw.flink;
 
+import com.alibaba.fastjson2.JSONObject;
 import com.crypto.dw.config.ConfigLoader;
 import com.crypto.dw.config.MetricsConfig;
 import com.crypto.dw.model.TickerData;
@@ -68,7 +69,7 @@ public class FlinkODSJobDataStream {
         // 创建 Flink 执行环境
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment(flinkConfig);
         // 设置并行度
-        int parallelism = config.getInt("flink.execution.parallelism", 2);
+        int parallelism = config.getInt("flink.execution.parallelism", 4);
         env.setParallelism(parallelism);
         
         // 启用 Checkpoint
@@ -133,7 +134,7 @@ public class FlinkODSJobDataStream {
      */
     private static KafkaSource<String> createKafkaSource(ConfigLoader config) {
         // 读取消费模式配置，默认使用 earliest（从头开始消费）
-        String startupMode = config.getString("kafka.consumer.startup-mode", "earliest");
+        String startupMode = config.getString("kafka.consumer.startup-mode", "latest");
         
         // 根据配置选择消费模式
         OffsetsInitializer offsetsInitializer;
@@ -173,14 +174,22 @@ public class FlinkODSJobDataStream {
         String feHttpUrl = config.getString("doris.fe.http-url");
         String feNodes = feHttpUrl.replace("http://", "").replace("https://", "");
         
+        // 读取数据库和表名配置
+        String database = config.getString("doris.database", "crypto_dw");
+        String table = config.getString("doris.tables.ods", "ods_crypto_ticker_rt");
+        String tableIdentifier = database + "." + table;
+        
+        logger.info("Doris Sink 配置:");
+        logger.info("  FE Nodes: {}", feNodes);
+        logger.info("  Database: {}", database);
+        logger.info("  Table: {}", table);
+        logger.info("  Table Identifier: {}", tableIdentifier);
+        
         // Doris 连接配置
         DorisOptions.Builder dorisBuilder = DorisOptions.builder()
             .setFenodes(feNodes)  // FE 地址,格式: host:port
-            .setTableIdentifier(
-                config.getString("doris.database") + "." + 
-                config.getString("doris.tables.ods")
-            )
-            .setUsername(config.getString("doris.fe.username"))
+            .setTableIdentifier(tableIdentifier)  // 数据库.表名
+            .setUsername(config.getString("doris.fe.username", "root"))
             .setPassword(config.getString("doris.fe.password", ""));
         
         // 关键修复: 如果 BE 使用 Docker 内部 IP,直接指定 BE 地址

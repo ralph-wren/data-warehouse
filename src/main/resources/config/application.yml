@@ -18,16 +18,10 @@ okx:
     secret: ${OKX_SECRET_KEY}
     passphrase: ${OKX_PASSPHRASE}
   
-  # 订阅的交易对列表
-  symbols:
-    - BTC-USDT
-    - ETH-USDT
-    - SOL-USDT
-    - BNB-USDT
-    - XRP-USDT
-    - ADA-USDT
-    - DOGE-USDT
-    - MATIC-USDT
+  # 订阅的交易对列表（逗号分隔）
+  # 建议订阅多个交易对，让数据均匀分布到 Kafka 的多个分区
+  # Kafka 使用交易对名称的 hash 值来决定分区
+  symbols: BTC-USDT,ETH-USDT,SOL-USDT,BNB-USDT
 
 # Kafka 配置
 kafka:

@@ -1,0 +1,262 @@
+# Kafka JMX Exporter 配置文件
+# 用于将 Kafka JMX 指标转换为 Prometheus 格式
+
+# 输出指标名称转为小写
+lowercaseOutputName: true
+lowercaseOutputLabelNames: true
+
+# 白名单规则 - 只导出需要的指标
+whitelistObjectNames:
+  - kafka.server:type=BrokerTopicMetrics,*
+  - kafka.server:type=ReplicaManager,*
+  - kafka.server:type=KafkaRequestHandlerPool,*
+  - kafka.network:type=RequestMetrics,*
+  - kafka.network:type=Processor,*
+  - kafka.server:type=ReplicaFetcherManager,*
+  - kafka.log:type=LogFlushStats,*
+  - kafka.controller:type=KafkaController,*
+  - kafka.controller:type=ControllerStats,*
+  - java.lang:type=OperatingSystem
+  - java.lang:type=GarbageCollector,*
+  - java.lang:type=Memory
+
+# 指标转换规则
+rules:
+  # ========================================
+  # Broker Topic 指标 - 消息流入流出
+  # ========================================
+  
+  # 消息流入速率 (每秒消息数)
+  - pattern: kafka.server<type=BrokerTopicMetrics, name=MessagesInPerSec, topic=(.+)><>Count
+    name: kafka_server_brokertopicmetrics_messagesinpersec_total
+    type: COUNTER
+    labels:
+      topic: "$1"
+  
+  # 所有 Topic 的消息流入速率
+  - pattern: kafka.server<type=BrokerTopicMetrics, name=MessagesInPerSec><>Count
+    name: kafka_server_brokertopicmetrics_messagesinpersec_total
+    type: COUNTER
+  
+  # 字节流入速率 (每秒字节数)
+  - pattern: kafka.server<type=BrokerTopicMetrics, name=BytesInPerSec, topic=(.+)><>Count
+    name: kafka_server_brokertopicmetrics_bytesinpersec_total
+    type: COUNTER
+    labels:
+      topic: "$1"
+  
+  - pattern: kafka.server<type=BrokerTopicMetrics, name=BytesInPerSec><>Count
+    name: kafka_server_brokertopicmetrics_bytesinpersec_total
+    type: COUNTER
+  
+  # 字节流出速率 (每秒字节数)
+  - pattern: kafka.server<type=BrokerTopicMetrics, name=BytesOutPerSec, topic=(.+)><>Count
+    name: kafka_server_brokertopicmetrics_bytesoutpersec_total
+    type: COUNTER
+    labels:
+      topic: "$1"
+  
+  - pattern: kafka.server<type=BrokerTopicMetrics, name=BytesOutPerSec><>Count
+    name: kafka_server_brokertopicmetrics_bytesoutpersec_total
+    type: COUNTER
+  
+  # 失败的生产请求
+  - pattern: kafka.server<type=BrokerTopicMetrics, name=FailedProduceRequestsPerSec><>Count
+    name: kafka_server_brokertopicmetrics_failedproducerequestspersec_total
+    type: COUNTER
+  
+  # 失败的消费请求
+  - pattern: kafka.server<type=BrokerTopicMetrics, name=FailedFetchRequestsPerSec><>Count
+    name: kafka_server_brokertopicmetrics_failedfetchrequestspersec_total
+    type: COUNTER
+  
+  # ========================================
+  # Replica Manager 指标 - 分区和副本
+  # ========================================
+  
+  # 分区数量
+  - pattern: kafka.server<type=ReplicaManager, name=PartitionCount><>Value
+    name: kafka_server_replicamanager_partitioncount
+    type: GAUGE
+  
+  # Leader 分区数量
+  - pattern: kafka.server<type=ReplicaManager, name=LeaderCount><>Value
+    name: kafka_server_replicamanager_leadercount
+    type: GAUGE
+  
+  # 未充分复制的分区数量 (ISR < 副本数)
+  - pattern: kafka.server<type=ReplicaManager, name=UnderReplicatedPartitions><>Value
+    name: kafka_server_replicamanager_underreplicatedpartitions
+    type: GAUGE
+  
+  # 离线分区数量
+  - pattern: kafka.server<type=ReplicaManager, name=OfflineReplicaCount><>Value
+    name: kafka_server_replicamanager_offlinereplicacount
+    type: GAUGE
+  
+  # ISR 扩展速率
+  - pattern: kafka.server<type=ReplicaManager, name=IsrExpandsPerSec><>Count
+    name: kafka_server_replicamanager_isrexpandspersec_total
+    type: COUNTER
+  
+  # ISR 收缩速率
+  - pattern: kafka.server<type=ReplicaManager, name=IsrShrinksPerSec><>Count
+    name: kafka_server_replicamanager_isrshrinkspersec_total
+    type: COUNTER
+  
+  # ========================================
+  # Request 指标 - 请求处理性能
+  # ========================================
+  
+  # 请求总时间 (包括队列等待、处理、响应)
+  - pattern: kafka.network<type=RequestMetrics, name=TotalTimeMs, request=(.+)><>(\w+)
+    name: kafka_network_requestmetrics_totaltimems
+    type: GAUGE
+    labels:
+      request: "$1"
+      quantile: "$2"
+  
+  # 请求队列时间
+  - pattern: kafka.network<type=RequestMetrics, name=RequestQueueTimeMs, request=(.+)><>(\w+)
+    name: kafka_network_requestmetrics_requestqueuetimems
+    type: GAUGE
+    labels:
+      request: "$1"
+      quantile: "$2"
+  
+  # 本地处理时间
+  - pattern: kafka.network<type=RequestMetrics, name=LocalTimeMs, request=(.+)><>(\w+)
+    name: kafka_network_requestmetrics_localtimems
+    type: GAUGE
+    labels:
+      request: "$1"
+      quantile: "$2"
+  
+  # 远程处理时间
+  - pattern: kafka.network<type=RequestMetrics, name=RemoteTimeMs, request=(.+)><>(\w+)
+    name: kafka_network_requestmetrics_remotetimems
+    type: GAUGE
+    labels:
+      request: "$1"
+      quantile: "$2"
+  
+  # 响应队列时间
+  - pattern: kafka.network<type=RequestMetrics, name=ResponseQueueTimeMs, request=(.+)><>(\w+)
+    name: kafka_network_requestmetrics_responsequeuetimems
+    type: GAUGE
+    labels:
+      request: "$1"
+      quantile: "$2"
+  
+  # 响应发送时间
+  - pattern: kafka.network<type=RequestMetrics, name=ResponseSendTimeMs, request=(.+)><>(\w+)
+    name: kafka_network_requestmetrics_responsesendtimems
+    type: GAUGE
+    labels:
+      request: "$1"
+      quantile: "$2"
+  
+  # 请求速率
+  - pattern: kafka.network<type=RequestMetrics, name=RequestsPerSec, request=(.+)><>Count
+    name: kafka_network_requestmetrics_requestspersec_total
+    type: COUNTER
+    labels:
+      request: "$1"
+  
+  # ========================================
+  # Log Flush 指标 - 日志刷新性能
+  # ========================================
+  
+  # 日志刷新速率
+  - pattern: kafka.log<type=LogFlushStats, name=LogFlushRateAndTimeMs><>Count
+    name: kafka_log_logflushstats_logflushrateandtimems_total
+    type: COUNTER
+  
+  # 日志刷新时间
+  - pattern: kafka.log<type=LogFlushStats, name=LogFlushRateAndTimeMs><>(\w+)
+    name: kafka_log_logflushstats_logflushrateandtimems
+    type: GAUGE
+    labels:
+      quantile: "$1"
+  
+  # ========================================
+  # Controller 指标 - 控制器状态
+  # ========================================
+  
+  # 活跃控制器数量 (应该为 1)
+  - pattern: kafka.controller<type=KafkaController, name=ActiveControllerCount><>Value
+    name: kafka_controller_kafkacontroller_activecontrollercount
+    type: GAUGE
+  
+  # 离线分区数量
+  - pattern: kafka.controller<type=KafkaController, name=OfflinePartitionsCount><>Value
+    name: kafka_controller_kafkacontroller_offlinepartitionscount
+    type: GAUGE
+  
+  # Leader 选举速率
+  - pattern: kafka.controller<type=ControllerStats, name=LeaderElectionRateAndTimeMs><>Count
+    name: kafka_controller_controllerstats_leaderelectionrateandtimems_total
+    type: COUNTER
+  
+  # Unclean Leader 选举速率
+  - pattern: kafka.controller<type=ControllerStats, name=UncleanLeaderElectionsPerSec><>Count
+    name: kafka_controller_controllerstats_uncleanleaderelectionspersec_total
+    type: COUNTER
+  
+  # ========================================
+  # JVM 指标 - 系统资源
+  # ========================================
+  
+  # CPU 使用率
+  - pattern: java.lang<type=OperatingSystem><>ProcessCpuLoad
+    name: jvm_process_cpu_load
+    type: GAUGE
+  
+  # 系统 CPU 使用率
+  - pattern: java.lang<type=OperatingSystem><>SystemCpuLoad
+    name: jvm_system_cpu_load
+    type: GAUGE
+  
+  # 可用处理器数量
+  - pattern: java.lang<type=OperatingSystem><>AvailableProcessors
+    name: jvm_available_processors
+    type: GAUGE
+  
+  # 堆内存使用
+  - pattern: java.lang<type=Memory><HeapMemoryUsage>(\w+)
+    name: jvm_memory_heap_$1
+    type: GAUGE
+  
+  # 非堆内存使用
+  - pattern: java.lang<type=Memory><NonHeapMemoryUsage>(\w+)
+    name: jvm_memory_nonheap_$1
+    type: GAUGE
+  
+  # GC 次数
+  - pattern: java.lang<type=GarbageCollector, name=(.+)><>CollectionCount
+    name: jvm_gc_collection_count_total
+    type: COUNTER
+    labels:
+      gc: "$1"
+  
+  # GC 时间
+  - pattern: java.lang<type=GarbageCollector, name=(.+)><>CollectionTime
+    name: jvm_gc_collection_time_ms_total
+    type: COUNTER
+    labels:
+      gc: "$1"
+  
+  # ========================================
+  # 默认规则 - 捕获其他指标
+  # ========================================
+  
+  # 捕获所有其他 Kafka 指标
+  - pattern: kafka.(\w+)<type=(.+), name=(.+), (.+)=(.+)><>Value
+    name: kafka_$1_$2_$3
+    type: GAUGE
+    labels:
+      "$4": "$5"
+  
+  - pattern: kafka.(\w+)<type=(.+), name=(.+)><>Value
+    name: kafka_$1_$2_$3
+    type: GAUGE

@@ -25,7 +25,9 @@ echo "Kafka 容器运行正常"
 # 创建 crypto_ticker Topic
 echo ""
 echo "创建 crypto_ticker Topic..."
-docker exec kafka /opt/kafka/bin/kafka-topics.sh \
+# Kafka 命令在 /usr/bin/ 目录下，没有 .sh 后缀
+# 设置 JMX_PORT 为空字符串，避免 JMX 端口冲突
+docker exec kafka bash -c "JMX_PORT= kafka-topics \
     --create \
     --topic crypto_ticker \
     --bootstrap-server localhost:9092 \
@@ -34,24 +36,24 @@ docker exec kafka /opt/kafka/bin/kafka-topics.sh \
     --config retention.ms=604800000 \
     --config segment.ms=3600000 \
     --config compression.type=lz4 \
-    --if-not-exists
+    --if-not-exists"
 
 echo "crypto_ticker Topic 创建成功"
 
 # 列出所有 Topic
 echo ""
 echo "当前 Kafka Topic 列表:"
-docker exec kafka /opt/kafka/bin/kafka-topics.sh \
+docker exec kafka bash -c "JMX_PORT= kafka-topics \
     --list \
-    --bootstrap-server localhost:9092
+    --bootstrap-server localhost:9092"
 
 # 查看 Topic 详情
 echo ""
 echo "crypto_ticker Topic 详情:"
-docker exec kafka /opt/kafka/bin/kafka-topics.sh \
+docker exec kafka bash -c "JMX_PORT= kafka-topics \
     --describe \
     --topic crypto_ticker \
-    --bootstrap-server localhost:9092
+    --bootstrap-server localhost:9092"
 
 echo ""
 echo "=========================================="

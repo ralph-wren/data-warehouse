@@ -1,0 +1,642 @@
+{
+  "annotations": {
+    "list": [{
+      "builtIn": 1,
+      "datasource": "-- Grafana --",
+      "enable": true,
+      "hide": true,
+      "iconColor": "rgba(0, 211, 255, 1)",
+      "name": "Annotations & Alerts",
+      "type": "dashboard"
+    }]
+  },
+  "editable": true,
+  "gnetId": null,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0},
+      "id": 100,
+      "panels": [],
+      "title": "集群概览",
+      "type": "row"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "red", "value": 0}
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 6, "w": 4, "x": 0, "y": 1},
+      "id": 1,
+      "options": {
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"]},
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "targets": [{
+        "expr": "kafka_brokers",
+        "refId": "A"
+      }],
+      "title": "Broker 数量",
+      "type": "gauge"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "steps": [
+              {"color": "green", "value": null}
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 6, "w": 4, "x": 4, "y": 1},
+      "id": 2,
+      "options": {
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"]},
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "targets": [{
+        "expr": "kafka_server_replicamanager_partitioncount",
+        "refId": "A"
+      }],
+      "title": "分区总数",
+      "type": "gauge"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "steps": [
+              {"color": "green", "value": null}
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 6, "w": 4, "x": 8, "y": 1},
+      "id": 3,
+      "options": {
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"]},
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "targets": [{
+        "expr": "kafka_server_replicamanager_leadercount",
+        "refId": "A"
+      }],
+      "title": "Leader 分区数",
+      "type": "gauge"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 1},
+              {"color": "red", "value": 5}
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 6, "w": 4, "x": 12, "y": 1},
+      "id": 4,
+      "options": {
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"]},
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "targets": [{
+        "expr": "kafka_server_replicamanager_underreplicatedpartitions",
+        "refId": "A"
+      }],
+      "title": "未充分复制的分区",
+      "type": "gauge"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "red", "value": 1}
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 6, "w": 4, "x": 16, "y": 1},
+      "id": 5,
+      "options": {
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"]},
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "targets": [{
+        "expr": "kafka_controller_kafkacontroller_offlinepartitionscount",
+        "refId": "A"
+      }],
+      "title": "离线分区数",
+      "type": "gauge"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "steps": [
+              {"color": "green", "value": 1},
+              {"color": "red", "value": null}
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 6, "w": 4, "x": 20, "y": 1},
+      "id": 6,
+      "options": {
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"]},
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "targets": [{
+        "expr": "kafka_controller_kafkacontroller_activecontrollercount",
+        "refId": "A"
+      }],
+      "title": "活跃控制器",
+      "type": "gauge"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 7},
+      "id": 101,
+      "panels": [],
+      "title": "消息吞吐量",
+      "type": "row"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisLabel": "消息/秒",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "id": 7,
+      "targets": [{
+        "expr": "rate(kafka_server_brokertopicmetrics_messagesinpersec_total[1m])",
+        "legendFormat": "{{topic}}",
+        "refId": "A"
+      }],
+      "title": "消息流入速率 (按 Topic)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisLabel": "字节/秒",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2
+          },
+          "unit": "Bps"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "id": 8,
+      "targets": [{
+        "expr": "rate(kafka_server_brokertopicmetrics_bytesinpersec_total[1m])",
+        "legendFormat": "流入 - {{topic}}",
+        "refId": "A"
+      }, {
+        "expr": "rate(kafka_server_brokertopicmetrics_bytesoutpersec_total[1m])",
+        "legendFormat": "流出 - {{topic}}",
+        "refId": "B"
+      }],
+      "title": "字节吞吐量 (按 Topic)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisLabel": "消息/秒",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "id": 9,
+      "targets": [{
+        "expr": "sum(rate(kafka_server_brokertopicmetrics_messagesinpersec_total[1m]))",
+        "legendFormat": "总消息流入速率",
+        "refId": "A"
+      }],
+      "title": "总消息流入速率",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisLabel": "字节/秒",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2
+          },
+          "unit": "Bps"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+      "id": 10,
+      "targets": [{
+        "expr": "sum(rate(kafka_server_brokertopicmetrics_bytesinpersec_total[1m]))",
+        "legendFormat": "总字节流入",
+        "refId": "A"
+      }, {
+        "expr": "sum(rate(kafka_server_brokertopicmetrics_bytesoutpersec_total[1m]))",
+        "legendFormat": "总字节流出",
+        "refId": "B"
+      }],
+      "title": "总字节吞吐量",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 24},
+      "id": 102,
+      "panels": [],
+      "title": "请求性能",
+      "type": "row"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisLabel": "毫秒",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2
+          },
+          "unit": "ms"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 25},
+      "id": 11,
+      "targets": [{
+        "expr": "kafka_network_requestmetrics_totaltimems{request=\"Produce\",quantile=\"Mean\"}",
+        "legendFormat": "Produce - 平均",
+        "refId": "A"
+      }, {
+        "expr": "kafka_network_requestmetrics_totaltimems{request=\"Produce\",quantile=\"99thPercentile\"}",
+        "legendFormat": "Produce - P99",
+        "refId": "B"
+      }, {
+        "expr": "kafka_network_requestmetrics_totaltimems{request=\"Fetch\",quantile=\"Mean\"}",
+        "legendFormat": "Fetch - 平均",
+        "refId": "C"
+      }, {
+        "expr": "kafka_network_requestmetrics_totaltimems{request=\"Fetch\",quantile=\"99thPercentile\"}",
+        "legendFormat": "Fetch - P99",
+        "refId": "D"
+      }],
+      "title": "请求总时间",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisLabel": "毫秒",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2
+          },
+          "unit": "ms"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 25},
+      "id": 12,
+      "targets": [{
+        "expr": "kafka_network_requestmetrics_requestqueuetimems{request=\"Produce\",quantile=\"Mean\"}",
+        "legendFormat": "Produce - 队列等待",
+        "refId": "A"
+      }, {
+        "expr": "kafka_network_requestmetrics_localtimems{request=\"Produce\",quantile=\"Mean\"}",
+        "legendFormat": "Produce - 本地处理",
+        "refId": "B"
+      }, {
+        "expr": "kafka_network_requestmetrics_responsequeuetimems{request=\"Produce\",quantile=\"Mean\"}",
+        "legendFormat": "Produce - 响应队列",
+        "refId": "C"
+      }, {
+        "expr": "kafka_network_requestmetrics_responsesendtimems{request=\"Produce\",quantile=\"Mean\"}",
+        "legendFormat": "Produce - 响应发送",
+        "refId": "D"
+      }],
+      "title": "Produce 请求时间分解",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisLabel": "请求/秒",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2
+          },
+          "unit": "reqps"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 33},
+      "id": 13,
+      "targets": [{
+        "expr": "rate(kafka_network_requestmetrics_requestspersec_total{request=\"Produce\"}[1m])",
+        "legendFormat": "Produce",
+        "refId": "A"
+      }, {
+        "expr": "rate(kafka_network_requestmetrics_requestspersec_total{request=\"Fetch\"}[1m])",
+        "legendFormat": "Fetch",
+        "refId": "B"
+      }, {
+        "expr": "rate(kafka_network_requestmetrics_requestspersec_total{request=\"Metadata\"}[1m])",
+        "legendFormat": "Metadata",
+        "refId": "C"
+      }],
+      "title": "请求速率 (按类型)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisLabel": "失败/秒",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 33},
+      "id": 14,
+      "targets": [{
+        "expr": "rate(kafka_server_brokertopicmetrics_failedproducerequestspersec_total[1m])",
+        "legendFormat": "失败的 Produce 请求",
+        "refId": "A"
+      }, {
+        "expr": "rate(kafka_server_brokertopicmetrics_failedfetchrequestspersec_total[1m])",
+        "legendFormat": "失败的 Fetch 请求",
+        "refId": "B"
+      }],
+      "title": "失败请求速率",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 41},
+      "id": 103,
+      "panels": [],
+      "title": "副本和分区",
+      "type": "row"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisLabel": "",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 42},
+      "id": 15,
+      "targets": [{
+        "expr": "kafka_topic_partition_in_sync_replica{topic=\"crypto_ticker\"}",
+        "legendFormat": "分区 {{partition}}",
+        "refId": "A"
+      }],
+      "title": "crypto_ticker 同步副本数",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisLabel": "扩展/秒",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 42},
+      "id": 16,
+      "targets": [{
+        "expr": "rate(kafka_server_replicamanager_isrexpandspersec_total[1m])",
+        "legendFormat": "ISR 扩展",
+        "refId": "A"
+      }, {
+        "expr": "rate(kafka_server_replicamanager_isrshrinkspersec_total[1m])",
+        "legendFormat": "ISR 收缩",
+        "refId": "B"
+      }],
+      "title": "ISR 变化速率",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 50},
+      "id": 104,
+      "panels": [],
+      "title": "JVM 和系统资源",
+      "type": "row"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisLabel": "使用率",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2
+          },
+          "max": 1,
+          "min": 0,
+          "unit": "percentunit"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 51},
+      "id": 17,
+      "targets": [{
+        "expr": "jvm_process_cpu_load",
+        "legendFormat": "进程 CPU",
+        "refId": "A"
+      }, {
+        "expr": "jvm_system_cpu_load",
+        "legendFormat": "系统 CPU",
+        "refId": "B"
+      }],
+      "title": "CPU 使用率",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisLabel": "字节",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2
+          },
+          "unit": "bytes"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 51},
+      "id": 18,
+      "targets": [{
+        "expr": "jvm_memory_heap_used",
+        "legendFormat": "堆内存使用",
+        "refId": "A"
+      }, {
+        "expr": "jvm_memory_heap_max",
+        "legendFormat": "堆内存最大",
+        "refId": "B"
+      }, {
+        "expr": "jvm_memory_nonheap_used",
+        "legendFormat": "非堆内存使用",
+        "refId": "C"
+      }],
+      "title": "JVM 内存使用",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisLabel": "次数/秒",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 59},
+      "id": 19,
+      "targets": [{
+        "expr": "rate(jvm_gc_collection_count_total[1m])",
+        "legendFormat": "{{gc}}",
+        "refId": "A"
+      }],
+      "title": "GC 频率",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisLabel": "毫秒/秒",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2
+          },
+          "unit": "ms"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 59},
+      "id": 20,
+      "targets": [{
+        "expr": "rate(jvm_gc_collection_time_ms_total[1m])",
+        "legendFormat": "{{gc}}",
+        "refId": "A"
+      }],
+      "title": "GC 时间",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 27,
+  "style": "dark",
+  "tags": ["kafka", "monitoring", "crypto-dw", "advanced"],
+  "templating": {"list": []},
+  "time": {"from": "now-15m", "to": "now"},
+  "timepicker": {},
+  "timezone": "Asia/Shanghai",
+  "title": "Kafka 监控 (完整版)",
+  "uid": "kafka-monitoring-advanced",
+  "version": 1
+}

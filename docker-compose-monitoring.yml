@@ -52,6 +52,80 @@ services:
       - monitoring-net
     restart: unless-stopped
 
+  # Kafka Exporter - Kafka 基础指标导出
+  # 注意: Kafka 的 advertised.listeners 配置为 localhost:9092
+  # 需要 Kafka Exporter 能够访问宿主机的 Kafka
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:latest
+    container_name: kafka-exporter
+    ports:
+      - "9308:9308"
+    # 使用命令行参数指定 Kafka 地址
+    command:
+      - '--kafka.server=host.docker.internal:9092'
+      - '--log.level=info'
+    networks:
+      - monitoring-net
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # JMX Exporter - Kafka 详细指标导出 (通过 JMX)
+  # 提供消息速率、LAG、吞吐量等详细监控指标
+  jmx-exporter:
+    image: bitnami/jmx-exporter:latest
+    container_name: kafka-jmx-exporter
+    ports:
+      - "5556:5556"
+    environment:
+      - SERVICE_PORT=5556
+    volumes:
+      - ./monitoring/jmx-exporter/kafka.yml:/etc/jmx-exporter/config.yml:ro
+    # JMX Exporter 启动参数: 端口 配置文件 JMX主机:端口
+    command:
+      - "5556"
+      - "/etc/jmx-exporter/config.yml"
+      - "host.docker.internal:9999"
+    networks:
+      - monitoring-net
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # MySQL Exporter - 用于监控 Doris(通过 MySQL 协议)
+  # 注意: Doris 不完全兼容 MySQL,只采集基本的全局状态指标
+  mysql-exporter:
+    image: prom/mysqld-exporter:v0.14.0
+    container_name: mysql-exporter
+    ports:
+      - "9104:9104"
+    environment:
+      # 连接宿主机的 Doris
+      - DATA_SOURCE_NAME=root:@tcp(host.docker.internal:9030)/
+    # 只采集全局状态,禁用所有其他采集器
+    command:
+      - '--collect.global_status'
+      - '--no-collect.global_variables'
+      - '--no-collect.slave_status'
+      - '--no-collect.info_schema.innodb_metrics'
+      - '--no-collect.info_schema.innodb_tablespaces'
+      - '--no-collect.info_schema.innodb_cmp'
+      - '--no-collect.info_schema.innodb_cmpmem'
+      - '--no-collect.info_schema.query_response_time'
+      - '--no-collect.info_schema.processlist'
+      - '--no-collect.info_schema.tables'
+      - '--no-collect.info_schema.tablestats'
+      - '--no-collect.info_schema.userstats'
+      - '--no-collect.perf_schema.eventswaits'
+      - '--no-collect.perf_schema.file_events'
+      - '--no-collect.perf_schema.tableiowaits'
+      - '--no-collect.perf_schema.tablelocks'
+    networks:
+      - monitoring-net
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
 networks:
   monitoring-net:
     driver: bridge

@@ -37,20 +37,24 @@ scrape_configs:
       - targets: ['host.docker.internal:8081']
     metrics_path: '/taskmanagers/metrics'
 
-  # Doris FE 监控
+  # Doris FE 监控 - 直接使用 Doris 的 Prometheus metrics 端点
   - job_name: 'doris-fe'
     static_configs:
       - targets: ['host.docker.internal:8030']
     metrics_path: '/metrics'
 
-  # Doris BE 监控
+  # Doris BE 监控 - 直接使用 Doris 的 Prometheus metrics 端点
   - job_name: 'doris-be'
     static_configs:
       - targets: ['host.docker.internal:8040']
     metrics_path: '/metrics'
 
-  # Kafka 监控 (如果启用了 JMX Exporter)
+  # Kafka Exporter - Kafka 基础指标 (Topic、分区、副本等)
   - job_name: 'kafka'
     static_configs:
-      - targets: ['host.docker.internal:9092']
-    metrics_path: '/metrics'
+      - targets: ['kafka-exporter:9308']
+
+  # Kafka JMX Exporter - Kafka 详细指标 (消息速率、吞吐量、请求延迟等)
+  - job_name: 'kafka-jmx'
+    static_configs:
+      - targets: ['jmx-exporter:5556']

@@ -1,0 +1,63 @@
+# StreamPark Docker Compose 配置
+# 用于管理和监控 Flink 作业
+
+version: '3.8'
+
+services:
+  streampark:
+    image: apache/streampark:v2.1.5
+    container_name: streampark
+    hostname: streampark
+    ports:
+      - "10000:10000"  # StreamPark Web UI
+    environment:
+      - TZ=Asia/Shanghai  # 中国时区
+      - DATASOURCE_DIALECT=h2  # 使用 H2 内置数据库（简单部署）
+      # 注意：不设置 JAVA_HOME，使用 StreamPark 容器内置的 Java
+      # 如果需要使用 MySQL，可以配置以下参数：
+      # - DATASOURCE_DIALECT=mysql
+      # - DATASOURCE_URL=jdbc:mysql://host.docker.internal:3306/streampark?useSSL=false&useUnicode=true&characterEncoding=UTF-8&allowPublicKeyRetrieval=false&useJDBCCompliantTimezoneShift=true&useLegacyDatetimeCode=false&serverTimezone=GMT%2B8
+      # - DATASOURCE_USERNAME=root
+      # - DATASOURCE_PASSWORD=your_password
+    volumes:
+      # 挂载 Docker socket，允许 StreamPark 管理容器
+      - /var/run/docker.sock:/var/run/docker.sock
+      # 挂载 hosts 文件（只读）
+      - /etc/hosts:/etc/hosts:ro
+      # StreamPark 数据持久化（使用本地目录）
+      - ./streampark-data:/streampark/data
+      # 挂载 Flink 到容器（只读）
+      - /e/DataFiles/flink-1.17.0:/opt/flink:ro
+      # 挂载 Maven 本地仓库 - 避免重复下载依赖，节省时间和带宽
+      - ~/.m2/repository:/root/.m2/repository
+      # 注意：不挂载 JDK，使用 StreamPark 容器内置的 Java
+      # 如果有 Kubernetes 配置，可以挂载
+      # - ~/.kube:/root/.kube:ro
+    privileged: true
+    restart: unless-stopped
+    networks:
+      - streampark-net
+      - doris-net  # 连接到 Doris 网络
+      - flink-net  # 连接到 Flink 网络
+      - default    # 连接到默认网络（Kafka）
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:10000"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+networks:
+  streampark-net:
+    driver: bridge
+  doris-net:
+    external: true
+    name: data-warehouse_doris-net
+  flink-net:
+    external: true
+    name: data-warehouse_flink-net
+  default:
+    external: true
+    name: data-warehouse_default
+
+volumes:
+  streampark-data:

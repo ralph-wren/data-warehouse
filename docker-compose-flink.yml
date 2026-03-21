@@ -1,0 +1,49 @@
+# Flink Standalone 集群 Docker Compose 配置
+# 用于 StreamPark 管理 Flink 作业
+
+version: '3.8'
+
+services:
+  jobmanager:
+    image: flink:1.17.0-scala_2.12-java8
+    container_name: flink-jobmanager
+    hostname: jobmanager
+    ports:
+      - "8081:8081"  # Web UI
+      - "6123:6123"  # RPC
+    command: jobmanager
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: jobmanager
+        taskmanager.numberOfTaskSlots: 4
+        parallelism.default: 4
+    networks:
+      - flink-net
+      - default  # 连接到默认网络（Kafka）
+    restart: unless-stopped
+
+  taskmanager:
+    image: flink:1.17.0-scala_2.12-java8
+    container_name: flink-taskmanager
+    hostname: taskmanager
+    depends_on:
+      - jobmanager
+    command: taskmanager
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: jobmanager
+        taskmanager.numberOfTaskSlots: 4
+        parallelism.default: 4
+    networks:
+      - flink-net
+      - default  # 连接到默认网络（Kafka）
+    restart: unless-stopped
+
+networks:
+  flink-net:
+    driver: bridge
+  default:
+    external: true
+    name: data-warehouse_default

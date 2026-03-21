@@ -46,8 +46,23 @@ public class FlinkODSJobDataStream {
 
         // 诊断日志：输出所有相关的 System Properties 和环境变量
         log.info("=== 诊断信息 ===");
+        log.info("Program Arguments: " + java.util.Arrays.toString(args));
         log.info("System Property APP_ENV: " + System.getProperty("APP_ENV"));
         log.info("Environment Variable APP_ENV: " + System.getenv("APP_ENV"));
+        
+        // 从程序参数中读取 APP_ENV（支持 StreamPark Remote 模式）
+        // 格式：--env docker 或 --APP_ENV docker
+        String envFromArgs = null;
+        for (int i = 0; i < args.length - 1; i++) {
+            if ("--env".equals(args[i]) || "--APP_ENV".equals(args[i])) {
+                envFromArgs = args[i + 1];
+                log.info("Found APP_ENV in program arguments: " + envFromArgs);
+                // 设置为 System Property，让 ConfigLoader 能读取到
+                System.setProperty("APP_ENV", envFromArgs);
+                break;
+            }
+        }
+        
         log.info("所有 System Properties:");
         System.getProperties().forEach((key, value) -> {
             String keyStr = key.toString();

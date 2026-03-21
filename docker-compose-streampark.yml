@@ -5,7 +5,7 @@ version: '3.8'
 
 services:
   streampark:
-    image: apache/streampark:v2.1.5
+    image: streampark-java11:v2.1.5  # 自定义镜像，包含 Java 11
     container_name: streampark
     hostname: streampark
     ports:

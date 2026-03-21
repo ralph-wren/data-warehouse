@@ -1,0 +1,47 @@
+# StreamPark 自定义镜像 - 包含 Java 11
+# 基于官方 StreamPark 镜像，添加 OpenJDK 11 支持
+
+FROM apache/streampark:v2.1.5
+
+# 设置维护者信息
+LABEL maintainer="crypto-dw"
+LABEL description="StreamPark with OpenJDK 11 support"
+
+# 切换到 root 用户进行安装
+USER root
+
+# 安装 OpenJDK 11 和必要的系统工具
+# 使用阿里云镜像加速下载
+RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list && \
+    sed -i 's/security.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+        openjdk-11-jdk \
+        curl \
+        wget \
+        vim \
+        net-tools \
+        procps \
+        coreutils \
+        findutils && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# 配置 Java 11 环境变量
+# 设置 JAVA_HOME 指向 Java 11（覆盖基础镜像的 Java 8）
+ENV JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64
+ENV JAVA_11_HOME=/usr/lib/jvm/java-11-openjdk-amd64
+ENV PATH=$JAVA_HOME/bin:$PATH
+
+# 验证 Java 11 安装
+RUN java -version && \
+    echo "Java 11 安装成功"
+
+# 设置工作目录
+WORKDIR /streampark
+
+# 暴露端口
+EXPOSE 10000
+
+# 使用默认的启动命令
+CMD ["/streampark/bin/streampark.sh", "start_docker"]

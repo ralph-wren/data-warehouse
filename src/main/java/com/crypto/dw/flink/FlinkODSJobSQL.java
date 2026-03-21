@@ -1,6 +1,7 @@
 package com.crypto.dw.flink;
 
 import com.crypto.dw.config.ConfigLoader;
+import com.crypto.dw.config.MetricsConfig;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
@@ -34,6 +35,17 @@ public class FlinkODSJobSQL {
         flinkConfig.setString("rest.address", config.getString("flink.web.address", "0.0.0.0"));  // 监听地址
         flinkConfig.setString("rest.bind-port", "8081-8090");  // 端口范围（字符串类型）
         flinkConfig.setBoolean("rest.flamegraph.enabled",true);
+        String pushgatewayHost = config.getString("application.metrics.pushgateway.host", "localhost");
+        int pushgatewayPort = config.getInt("application.metrics.pushgateway.port", 9091);
+        MetricsConfig.configurePushgatewayReporter(
+                flinkConfig,
+                pushgatewayHost,  // 从配置文件读取
+                pushgatewayPort,  // 从配置文件读取
+                "flink-ods-job"  // 作业名称
+        );
+
+        // 配置通用 Metrics 选项
+        MetricsConfig.configureCommonMetrics(flinkConfig);
         // 创建 Flink 执行环境
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment(flinkConfig);
         StreamTableEnvironment tableEnv = StreamTableEnvironment.create(env);
@@ -85,7 +97,7 @@ public class FlinkODSJobSQL {
     private static String createKafkaSourceDDL(ConfigLoader config) {
         String bootstrapServers = config.getString("kafka.bootstrap-servers");
         String topic = config.getString("kafka.topic.crypto-ticker");
-        String groupId = config.getString("kafka.consumer.group-id", "flink-ods-consumer-sql");
+        String groupId = "flink-ods-consumer-sql";
         
         return "CREATE TABLE kafka_source (\n" +
                "    inst_id STRING,\n" +
@@ -125,6 +137,39 @@ public class FlinkODSJobSQL {
         long batchInterval = config.getLong("doris.stream-load.batch-interval-ms", 5000);
         int maxRetries = config.getInt("doris.stream-load.max-retries", 3);
         
+        // 获取 BE 节点地址 (用于解决 Docker 网络问题)
+        // 如果不配置,Connector 会从 FE 获取 BE 地址,可能是 Docker 内部 IP
+        String beNodes = config.getString("doris.be.nodes", "");
+        
+        // 生成唯一的 Label 前缀,避免 Label 冲突
+        // 使用时间戳确保每次启动作业时 Label 都不同
+        String labelPrefix = "flink_ods_" + System.currentTimeMillis();
+        
+        // 构建 WITH 子句
+        StringBuilder withClause = new StringBuilder();
+        withClause.append("    'connector' = 'doris',\n");
+        withClause.append("    'fenodes' = '").append(feNodes).append("',\n");
+        
+        // 如果配置了 BE 地址,则添加 benodes 参数
+        if (!beNodes.isEmpty()) {
+            withClause.append("    'benodes' = '").append(beNodes).append("',\n");
+            log.info("使用配置的 BE 地址: " + beNodes);
+        } else {
+            log.warn("未配置 BE 地址,将从 FE 获取 (可能导致 Docker 网络问题)");
+        }
+        
+        withClause.append("    'table.identifier' = '").append(database).append(".").append(table).append("',\n");
+        withClause.append("    'username' = '").append(username).append("',\n");
+        withClause.append("    'password' = '").append(password).append("',\n");
+        withClause.append("    'sink.label-prefix' = '").append(labelPrefix).append("',\n");  // 添加 Label 前缀
+        withClause.append("    'sink.buffer-flush.max-rows' = '").append(batchSize).append("',\n");
+        withClause.append("    'sink.buffer-flush.interval' = '").append(batchInterval).append("ms',\n");
+        withClause.append("    'sink.max-retries' = '").append(maxRetries).append("',\n");
+        withClause.append("    'sink.properties.format' = 'json',\n");
+        withClause.append("    'sink.properties.read_json_by_line' = 'true'\n");
+        
+        log.info("Doris Sink Label 前缀: " + labelPrefix);
+        
         return "CREATE TABLE doris_ods_sink (\n" +
                "    inst_id STRING,\n" +
                "    `timestamp` BIGINT,\n" +
@@ -140,16 +185,7 @@ public class FlinkODSJobSQL {
                "    data_source STRING,\n" +
                "    ingest_time BIGINT\n" +
                ") WITH (\n" +
-               "    'connector' = 'doris',\n" +
-               "    'fenodes' = '" + feNodes + "',\n" +
-               "    'table.identifier' = '" + database + "." + table + "',\n" +
-               "    'username' = '" + username + "',\n" +
-               "    'password' = '" + password + "',\n" +
-               "    'sink.buffer-flush.max-rows' = '" + batchSize + "',\n" +  // 修改参数名称
-               "    'sink.buffer-flush.interval' = '" + batchInterval + "ms',\n" +  // 修改参数名称
-               "    'sink.max-retries' = '" + maxRetries + "',\n" +
-               "    'sink.properties.format' = 'json',\n" +
-               "    'sink.properties.read_json_by_line' = 'true'\n" +
+               withClause.toString() +
                ")";
     }
     

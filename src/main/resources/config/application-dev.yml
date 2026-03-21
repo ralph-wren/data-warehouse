@@ -58,10 +58,10 @@ doris:
     username: root
     password: ""
   
-  # BE 节点配置 (可选,用于解决 Docker 网络问题)
-  # 如果 BE 使用 Docker 内部 IP,可以直接指定宿主机地址
+  # BE 节点配置 (必须配置,用于解决 Docker 网络问题)
+  # Flink SQL 作业需要明确指定 BE 地址,否则会使用 FE 返回的 Docker 内部 IP
   be:
-    nodes: "127.0.0.1:8040"  # 本地 Doris BE 地址
+    nodes: "127.0.0.1:8040"  # 本地 Doris BE 地址 (宿主机访问)
   
   # 数据库配置
   database: crypto_dw

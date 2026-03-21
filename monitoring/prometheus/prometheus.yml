@@ -25,17 +25,17 @@ scrape_configs:
     static_configs:
       - targets: ['pushgateway:9091']
 
-  # Flink JobManager - 如果使用 Standalone 模式
+  # Flink JobManager - Prometheus Reporter
   - job_name: 'flink-jobmanager'
     static_configs:
-      - targets: ['host.docker.internal:8081']  # Flink Web UI 端口
-    metrics_path: '/metrics'
+      - targets: ['jobmanager:9249']  # Flink JobManager Prometheus Reporter
     
-  # Flink TaskManager - 如果使用 Standalone 模式
+  # Flink TaskManager - Prometheus Reporter
   - job_name: 'flink-taskmanager'
     static_configs:
-      - targets: ['host.docker.internal:8081']
-    metrics_path: '/taskmanagers/metrics'
+      - targets: 
+        - 'taskmanager-1:9249'  # TaskManager 1
+        - 'taskmanager-2:9249'  # TaskManager 2
 
   # Doris FE 监控 - 直接使用 Doris 的 Prometheus metrics 端点
   - job_name: 'doris-fe'

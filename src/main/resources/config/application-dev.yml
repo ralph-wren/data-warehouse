@@ -25,7 +25,7 @@ okx:
 # Kafka 配置
 # 注意：本地开发环境使用 localhost
 kafka:
-  bootstrap-servers: localhost:9092  # 本地 Kafka 地址
+  bootstrap-servers: localhost:9093  # 本地 Kafka 地址
   
   # Topic 配置
   topic:

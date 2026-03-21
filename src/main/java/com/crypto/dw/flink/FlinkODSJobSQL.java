@@ -2,6 +2,7 @@ package com.crypto.dw.flink;
 
 import com.crypto.dw.config.ConfigLoader;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.table.api.bridge.java.StreamTableEnvironment;
 import org.slf4j.Logger;
@@ -24,11 +25,19 @@ public class FlinkODSJobSQL {
         
         // 加载配置
         ConfigLoader config = ConfigLoader.getInstance();
-        
+        Configuration flinkConfig = new Configuration();
+
+        // 启用 Web UI（注意：端口参数必须是 int 类型）
+        flinkConfig.setBoolean("web.submit.enable", config.getBoolean("flink.web.submit.enable", true));
+        flinkConfig.setBoolean("web.cancel.enable", config.getBoolean("flink.web.cancel.enable", true));
+        flinkConfig.setInteger("rest.port", config.getInt("flink.web.port", 8082));  // Web UI 端口
+        flinkConfig.setString("rest.address", config.getString("flink.web.address", "0.0.0.0"));  // 监听地址
+        flinkConfig.setString("rest.bind-port", "8081-8090");  // 端口范围（字符串类型）
+        flinkConfig.setBoolean("rest.flamegraph.enabled",true);
         // 创建 Flink 执行环境
-        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment(flinkConfig);
         StreamTableEnvironment tableEnv = StreamTableEnvironment.create(env);
-        
+
         // 设置并行度
         int parallelism = config.getInt("flink.execution.parallelism", 4);
         env.setParallelism(parallelism);
@@ -108,8 +117,8 @@ public class FlinkODSJobSQL {
      */
     private static String createDorisSinkDDL(ConfigLoader config) {
         String feNodes = config.getString("doris.fe.http-url").replace("http://", "");
-        String database = config.getString("doris.database");
-        String table = config.getString("doris.tables.ods");
+        String database = config.getString("doris.database","crypto_dw");
+        String table = config.getString("doris.tables.ods","ods_crypto_ticker_rt");
         String username = config.getString("doris.fe.username");
         String password = config.getString("doris.fe.password", "");
         int batchSize = config.getInt("doris.stream-load.batch-size", 1000);
@@ -136,8 +145,8 @@ public class FlinkODSJobSQL {
                "    'table.identifier' = '" + database + "." + table + "',\n" +
                "    'username' = '" + username + "',\n" +
                "    'password' = '" + password + "',\n" +
-               "    'sink.batch.size' = '" + batchSize + "',\n" +
-               "    'sink.batch.interval' = '" + batchInterval + "ms',\n" +
+               "    'sink.buffer-flush.max-rows' = '" + batchSize + "',\n" +  // 修改参数名称
+               "    'sink.buffer-flush.interval' = '" + batchInterval + "ms',\n" +  // 修改参数名称
                "    'sink.max-retries' = '" + maxRetries + "',\n" +
                "    'sink.properties.format' = 'json',\n" +
                "    'sink.properties.read_json_by_line' = 'true'\n" +

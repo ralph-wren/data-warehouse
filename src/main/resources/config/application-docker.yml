@@ -43,3 +43,9 @@ application:
   logging:
     level: INFO  # Docker 环境使用 INFO 级别，减少日志量
     file: /opt/flink/logs/crypto-dw.log  # Docker 容器内路径
+  
+  # 监控配置
+  metrics:
+    pushgateway:
+      host: pushgateway  # Docker 容器名称
+      port: 9091

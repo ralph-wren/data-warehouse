@@ -37,5 +37,11 @@ flink:
 # 应用配置
 application:
   logging:
-    level: DEBUG  # 本地开发使用 DEBUG 级别，方便调试
+    level: DEBUG  # 本地开发使用 DEBUG 级别
+  
+  # 监控配置
+  metrics:
+    pushgateway:
+      host: localhost  # 本地 Pushgateway 地址
+      port: 9091，方便调试
 

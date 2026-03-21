@@ -29,7 +29,7 @@ public class TestWatermarkTimestampExtraction {
                 return Long.parseLong(timestampStr);
             }
         } catch (Exception e) {
-            System.err.println("提取失败: " + e.getMessage());
+            log.error("提取失败: " + e.getMessage());
         }
         return -1; // 提取失败
     }
@@ -38,10 +38,10 @@ public class TestWatermarkTimestampExtraction {
      * 测试用例
      */
     public static void main(String[] args) {
-        System.out.println("==========================================");
-        System.out.println("Watermark 时间戳提取测试");
-        System.out.println("==========================================");
-        System.out.println();
+        log.info("==========================================");
+        log.info("Watermark 时间戳提取测试");
+        log.info("==========================================");
+        
         
         // 测试用例数组
         String[] testCases = {
@@ -82,40 +82,40 @@ public class TestWatermarkTimestampExtraction {
             String testCase = testCases[i];
             long timestamp = extractTimestamp(testCase);
             
-            System.out.println("测试 " + (i + 1) + ":");
-            System.out.println("  输入: " + testCase);
+            log.info("测试 " + (i + 1) + ":");
+            log.info("  输入: " + testCase);
             
             if (timestamp != -1) {
-                System.out.println("  结果: ✓ 成功提取");
-                System.out.println("  时间戳: " + timestamp);
-                System.out.println("  日期: " + new java.util.Date(timestamp));
+                log.info("  结果: ✓ 成功提取");
+                log.info("  时间戳: " + timestamp);
+                log.info("  日期: " + new java.util.Date(timestamp));
                 successCount++;
             } else {
-                System.out.println("  结果: ✗ 提取失败");
+                log.info("  结果: ✗ 提取失败");
                 failCount++;
             }
-            System.out.println();
+            
         }
         
-        System.out.println("==========================================");
-        System.out.println("测试总结");
-        System.out.println("==========================================");
-        System.out.println("总计: " + testCases.length + " 个测试用例");
-        System.out.println("成功: " + successCount + " 个");
-        System.out.println("失败: " + failCount + " 个");
-        System.out.println();
+        log.info("==========================================");
+        log.info("测试总结");
+        log.info("==========================================");
+        log.info("总计: " + testCases.length + " 个测试用例");
+        log.info("成功: " + successCount + " 个");
+        log.info("失败: " + failCount + " 个");
+        
         
         // 预期结果
         int expectedSuccess = 12;  // 前 12 个应该成功
         int expectedFail = 3;      // 后 3 个应该失败
         
         if (successCount == expectedSuccess && failCount == expectedFail) {
-            System.out.println("✓ 所有测试通过！");
+            log.info("✓ 所有测试通过！");
             System.exit(0);
         } else {
-            System.out.println("✗ 测试失败！");
-            System.out.println("  预期成功: " + expectedSuccess + ", 实际: " + successCount);
-            System.out.println("  预期失败: " + expectedFail + ", 实际: " + failCount);
+            log.info("✗ 测试失败！");
+            log.info("  预期成功: " + expectedSuccess + ", 实际: " + successCount);
+            log.info("  预期失败: " + expectedFail + ", 实际: " + failCount);
             System.exit(1);
         }
     }

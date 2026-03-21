@@ -6,6 +6,7 @@ import com.crypto.dw.config.MetricsConfig;
 import com.crypto.dw.flink.watermark.WatermarkStrategyFactory;
 import com.crypto.dw.model.TickerData;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.doris.flink.cfg.DorisExecutionOptions;
 import org.apache.doris.flink.cfg.DorisOptions;
 import org.apache.doris.flink.cfg.DorisReadOptions;
@@ -32,16 +33,17 @@ import java.util.Properties;
  * 1. 使用官方 DorisSink 替代自定义 HTTP Stream Load
  * 2. 兼容 Doris 3.1.x 版本
  * 3. 支持自动重试和错误处理
- */
+ */ 
+@Slf4j
 public class FlinkODSJobDataStream {
     
     private static final Logger logger = LoggerFactory.getLogger(FlinkODSJobDataStream.class);
     
     public static void main(String[] args) throws Exception {
-        System.out.println("==========================================");
-        System.out.println("Flink ODS Job (官方 Doris Connector)");
-        System.out.println("==========================================");
-        System.out.println();
+        log.info("==========================================");
+        log.info("Flink ODS Job (官方 Doris Connector)");
+        log.info("==========================================");
+
         
         // 加载配置
         ConfigLoader config = ConfigLoader.getInstance();
@@ -50,18 +52,22 @@ public class FlinkODSJobDataStream {
         Configuration flinkConfig = new Configuration();
 
         // 启用 Web UI（注意：端口参数必须是 int 类型）
-        flinkConfig.setBoolean("web.submit.enable", true);
-        flinkConfig.setBoolean("web.cancel.enable", true);
-        flinkConfig.setInteger("rest.port", 8081);  // Web UI 端口
-        flinkConfig.setString("rest.address", "localhost");  // 监听地址
+        flinkConfig.setBoolean("web.submit.enable", config.getBoolean("flink.web.submit.enable", true));
+        flinkConfig.setBoolean("web.cancel.enable", config.getBoolean("flink.web.cancel.enable", true));
+        flinkConfig.setInteger("rest.port", config.getInt("flink.web.port", 8081));  // Web UI 端口
+        flinkConfig.setString("rest.address", config.getString("flink.web.address", "0.0.0.0"));  // 监听地址
         flinkConfig.setString("rest.bind-port", "8081-8090");  // 端口范围（字符串类型）
         flinkConfig.setBoolean("rest.flamegraph.enabled",true);
         
         // 配置 Prometheus Metrics（推送到 Pushgateway）
+        // 注意：从配置文件读取 Pushgateway 地址，支持本地和 Docker 环境
+        String pushgatewayHost = config.getString("application.metrics.pushgateway.host", "localhost");
+        int pushgatewayPort = config.getInt("application.metrics.pushgateway.port", 9091);
+        
         MetricsConfig.configurePushgatewayReporter(
             flinkConfig,
-            "localhost",  // Pushgateway 主机
-            9091,         // Pushgateway 端口
+            pushgatewayHost,  // 从配置文件读取
+            pushgatewayPort,  // 从配置文件读取
             "flink-ods-job"  // 作业名称
         );
         
@@ -78,10 +84,10 @@ public class FlinkODSJobDataStream {
         long checkpointInterval = config.getLong("flink.checkpoint.interval", 30000);
         env.enableCheckpointing(checkpointInterval);
         
-        System.out.println("Flink Environment:");
-        System.out.println("  Parallelism: " + parallelism);
-        System.out.println("  Checkpoint Interval: " + checkpointInterval + " ms");
-        System.out.println();
+        log.info("Flink Environment:");
+        log.info("  Parallelism: " + parallelism);
+        log.info("  Checkpoint Interval: " + checkpointInterval + " ms");
+        
         
         // 配置 Kafka Source
         KafkaSource<String> kafkaSource = createKafkaSource(config);
@@ -93,12 +99,12 @@ public class FlinkODSJobDataStream {
             "Kafka Source"
         );
         
-        System.out.println("Kafka Source created:");
-        System.out.println("  Bootstrap Servers: " + config.getString("kafka.bootstrap-servers"));
-        System.out.println("  Topic: " + config.getString("kafka.topic.crypto-ticker"));
-        System.out.println("  Group ID: " + config.getString("kafka.consumer.group-id"));
-        System.out.println("  Startup Mode: " + config.getString("kafka.consumer.startup-mode", "earliest"));
-        System.out.println();
+        log.info("Kafka Source created:");
+        log.info("  Bootstrap Servers: " + config.getString("kafka.bootstrap-servers"));
+        log.info("  Topic: " + config.getString("kafka.topic.crypto-ticker"));
+        log.info("  Group ID: " + config.getString("kafka.consumer.group-id"));
+        log.info("  Startup Mode: " + config.getString("kafka.consumer.startup-mode", "earliest"));
+        
         
         // 数据转换：JSON -> Doris 格式
         DataStream<String> odsStream = rawStream
@@ -111,16 +117,16 @@ public class FlinkODSJobDataStream {
         // 写入 Doris
         odsStream.sinkTo(dorisSink).name("Doris ODS Sink");
         
-        System.out.println("Doris Sink created (官方 Connector):");
-        System.out.println("  FE Nodes: " + config.getString("doris.fe.http-url"));
-        System.out.println("  Database: " + config.getString("doris.database"));
-        System.out.println("  Table: " + config.getString("doris.tables.ods"));
-        System.out.println();
+        log.info("Doris Sink created (官方 Connector):");
+        log.info("  FE Nodes: " + config.getString("doris.fe.http-url"));
+        log.info("  Database: " + config.getString("doris.database"));
+        log.info("  Table: " + config.getString("doris.tables.ods"));
         
-        System.out.println("==========================================");
-        System.out.println("Starting Flink Job...");
-        System.out.println("==========================================");
-        System.out.println();
+        
+        log.info("==========================================");
+        log.info("Starting Flink Job...");
+        log.info("==========================================");
+        
         
         // 执行作业
         env.execute("Flink ODS Job - 官方 Doris Connector");
@@ -143,16 +149,16 @@ public class FlinkODSJobDataStream {
         switch (startupMode.toLowerCase()) {
             case "latest":
                 offsetsInitializer = OffsetsInitializer.latest();
-                System.out.println("  Startup Mode: latest（从最新数据开始）");
+                log.info("  Startup Mode: latest（从最新数据开始）");
                 break;
             case "committed":
                 offsetsInitializer = OffsetsInitializer.committedOffsets();
-                System.out.println("  Startup Mode: committed（从上次提交的 offset 开始）");
+                log.info("  Startup Mode: committed（从上次提交的 offset 开始）");
                 break;
             case "earliest":
             default:
                 offsetsInitializer = OffsetsInitializer.earliest();
-                System.out.println("  Startup Mode: earliest（从最早数据开始）");
+                log.info("  Startup Mode: earliest（从最早数据开始）");
                 break;
         }
         

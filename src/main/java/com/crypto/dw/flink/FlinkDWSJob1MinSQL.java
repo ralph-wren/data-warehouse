@@ -1,6 +1,7 @@
 package com.crypto.dw.flink;
 
 import com.crypto.dw.config.ConfigLoader;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.table.api.bridge.java.StreamTableEnvironment;
 import org.slf4j.Logger;
@@ -10,15 +11,16 @@ import org.slf4j.LoggerFactory;
  * Flink DWS 作业 - 1分钟窗口聚合
  * 从 Kafka 读取数据，进行1分钟窗口聚合，生成 K 线数据写入 DWS 层
  */
+@Slf4j
 public class FlinkDWSJob1MinSQL {
     
     private static final Logger logger = LoggerFactory.getLogger(FlinkDWSJob1MinSQL.class);
     
     public static void main(String[] args) throws Exception {
-        System.out.println("==========================================");
-        System.out.println("Flink DWS Job - 1 Minute Window (Flink SQL)");
-        System.out.println("==========================================");
-        System.out.println();
+        log.info("==========================================");
+        log.info("Flink DWS Job - 1 Minute Window (Flink SQL)");
+        log.info("==========================================");
+        
         
         // 加载配置
         ConfigLoader config = ConfigLoader.getInstance();
@@ -35,31 +37,31 @@ public class FlinkDWSJob1MinSQL {
         long checkpointInterval = config.getLong("flink.checkpoint.interval", 60000);
         env.enableCheckpointing(checkpointInterval);
         
-        System.out.println("Flink Environment:");
-        System.out.println("  Parallelism: " + parallelism);
-        System.out.println("  Checkpoint Interval: " + checkpointInterval + " ms");
-        System.out.println();
+        log.info("Flink Environment:");
+        log.info("  Parallelism: " + parallelism);
+        log.info("  Checkpoint Interval: " + checkpointInterval + " ms");
+        
         
         // 创建 Kafka Source 表（带事件时间和 Watermark）
         String kafkaSourceDDL = createKafkaSourceDDL(config);
-        System.out.println("Creating Kafka Source Table...");
+        log.info("Creating Kafka Source Table...");
         tableEnv.executeSql(kafkaSourceDDL);
         
         // 创建 Doris DWS Sink 表
         String dorisSinkDDL = createDorisSinkDDL(config);
-        System.out.println("Creating Doris DWS Sink Table...");
+        log.info("Creating Doris DWS Sink Table...");
         tableEnv.executeSql(dorisSinkDDL);
         
         // 执行窗口聚合 SQL
         String insertSQL = createInsertSQL();
-        System.out.println("Executing Window Aggregation SQL...");
-        System.out.println(insertSQL);
-        System.out.println();
+        log.info("Executing Window Aggregation SQL...");
+        log.info(insertSQL);
         
-        System.out.println("==========================================");
-        System.out.println("Starting Flink DWS 1Min SQL Job...");
-        System.out.println("==========================================");
-        System.out.println();
+        
+        log.info("==========================================");
+        log.info("Starting Flink DWS 1Min SQL Job...");
+        log.info("==========================================");
+        
         
         tableEnv.executeSql(insertSQL);
     }

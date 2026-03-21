@@ -5,6 +5,7 @@ import com.crypto.dw.kafka.KafkaProducerManager;
 import com.crypto.dw.model.TickerData;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.extern.slf4j.Slf4j;
 import org.java_websocket.client.WebSocketClient;
 import org.java_websocket.handshake.ServerHandshake;
 import org.slf4j.Logger;
@@ -19,6 +20,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * OKX WebSocket 客户端
  * 订阅实时行情数据并发送到 Kafka
  */
+@Slf4j
 public class OKXWebSocketClient extends WebSocketClient {
     
     private static final Logger logger = LoggerFactory.getLogger(OKXWebSocketClient.class);
@@ -162,19 +164,19 @@ public class OKXWebSocketClient extends WebSocketClient {
             String instId = tickerData.getInstId();
             String jsonData = objectMapper.writeValueAsString(tickerData);
             
-            System.out.println("Processing ticker: " + instId + ", Price: " + tickerData.getLast());
+            log.info("Processing ticker: " + instId + ", Price: " + tickerData.getLast());
             
             // 发送到 Kafka
             kafkaProducer.send(instId, jsonData)
                 .thenAccept(metadata -> {
-                    System.out.println("✓ Sent to Kafka: " + instId + ", Partition: " + metadata.partition() + ", Offset: " + metadata.offset());
+                    log.info("✓ Sent to Kafka: " + instId + ", Partition: " + metadata.partition() + ", Offset: " + metadata.offset());
                     if (logger.isDebugEnabled()) {
                         logger.debug("Ticker data sent to Kafka. InstId: {}, Price: {}, Partition: {}, Offset: {}", 
                             instId, tickerData.getLast(), metadata.partition(), metadata.offset());
                     }
                 })
                 .exceptionally(ex -> {
-                    System.err.println("❌ Failed to send to Kafka: " + instId + ", Error: " + ex.getMessage());
+                    log.error("❌ Failed to send to Kafka: " + instId + ", Error: " + ex.getMessage());
                     logger.error("Failed to send ticker data to Kafka. InstId: {}, Error: {}", 
                         instId, ex.getMessage());
                     return null;
@@ -188,7 +190,7 @@ public class OKXWebSocketClient extends WebSocketClient {
             }
             
         } catch (Exception e) {
-            System.err.println("Error processing ticker data: " + e.getMessage());
+            log.error("Error processing ticker data: " + e.getMessage());
             logger.error("Error processing ticker data: {}", e.getMessage(), e);
         }
     }

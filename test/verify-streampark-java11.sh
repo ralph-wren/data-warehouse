@@ -93,8 +93,8 @@ echo "6. 测试编译 Java 11 代码..."
 docker exec streampark bash -c 'cat > /tmp/Test.java << EOF
 public class Test {
     public static void main(String[] args) {
-        System.out.println("Java version: " + System.getProperty("java.version"));
-        System.out.println("Java home: " + System.getProperty("java.home"));
+        log.info("Java version: " + System.getProperty("java.version"));
+        log.info("Java home: " + System.getProperty("java.home"));
     }
 }
 EOF'

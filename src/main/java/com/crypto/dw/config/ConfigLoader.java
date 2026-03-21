@@ -1,5 +1,6 @@
 package com.crypto.dw.config;
 
+import lombok.extern.slf4j.Slf4j;
 import org.yaml.snakeyaml.Yaml;
 import java.io.InputStream;
 import java.util.HashMap;
@@ -10,7 +11,14 @@ import java.util.regex.Pattern;
 /**
  * 配置加载器
  * 支持从 YAML 文件加载配置，并解析环境变量引用
+ ***
+ * @Description:
+ * @Param:
+ * @return:
+ * @Author: Gang
+ * @Date: 2026/3/21
  */
+@Slf4j
 public class ConfigLoader {
     
     private static final Pattern ENV_VAR_PATTERN = Pattern.compile("\\$\\{([^}]+)\\}");
@@ -37,13 +45,13 @@ public class ConfigLoader {
             env = "dev";
         }
         
-        System.out.println("Loading configuration for environment: " + env);
+        log.info("Loading configuration for environment: " + env);
         
         // 加载基础配置
         Map<String, Object> baseConfig = loadYamlFile("application.yml");
         if (baseConfig.isEmpty()) {
-            System.err.println("ERROR: Failed to load base configuration file: application.yml");
-            System.err.println("Please ensure the file exists in src/main/resources/config/");
+            log.error("ERROR: Failed to load base configuration file: application.yml");
+            log.error("Please ensure the file exists in src/main/resources/config/");
             // 不要调用 System.exit()，而是使用空配置继续
         }
         
@@ -51,8 +59,8 @@ public class ConfigLoader {
         String envConfigFile = "application-" + env + ".yml";
         Map<String, Object> envConfig = loadYamlFile(envConfigFile);
         if (envConfig.isEmpty()) {
-            System.out.println("Warning: Environment-specific config file not found: " + envConfigFile);
-            System.out.println("Using base configuration only");
+            log.info("Warning: Environment-specific config file not found: " + envConfigFile);
+            log.info("Using base configuration only");
         }
         
         // 合并配置
@@ -61,8 +69,8 @@ public class ConfigLoader {
         // 解析环境变量
         config = resolveEnvVars(config);
         
-        System.out.println("Configuration loaded successfully");
-        System.out.println("Total config keys: " + countKeys(config));
+        log.info("Configuration loaded successfully");
+        log.info("Total config keys: " + countKeys(config));
     }
     
     /**
@@ -75,14 +83,14 @@ public class ConfigLoader {
                 .getResourceAsStream("config/" + filename);
             
             if (inputStream == null) {
-                System.out.println("Warning: Config file not found: " + filename);
+                log.info("Warning: Config file not found: " + filename);
                 return new HashMap<>();
             }
             
             Map<String, Object> data = yaml.load(inputStream);
             return data != null ? data : new HashMap<>();
         } catch (Exception e) {
-            System.err.println("Error loading config file: " + filename);
+            log.error("Error loading config file: " + filename);
             e.printStackTrace();
             return new HashMap<>();
         }
@@ -150,7 +158,7 @@ public class ConfigLoader {
             if (envVarValue == null) {
                 // 对于可选的环境变量（如 OKX API 密钥），使用空字符串
                 // 对于必需的环境变量，应该在使用时检查
-                System.out.println("Info: Environment variable not set: " + envVarName + " (using empty string)");
+                log.info("Info: Environment variable not set: " + envVarName + " (using empty string)");
                 envVarValue = "";
             }
             
@@ -297,7 +305,7 @@ public class ConfigLoader {
      * 打印所有配置（用于调试）
      */
     public void printConfig() {
-        System.out.println("=== Configuration ===");
+        log.info("=== Configuration ===");
         printMap(config, "");
     }
     
@@ -312,9 +320,9 @@ public class ConfigLoader {
             } else {
                 // 隐藏敏感信息
                 if (key.contains("password") || key.contains("secret") || key.contains("key")) {
-                    System.out.println(key + " = ******");
+                    log.info(key + " = ******");
                 } else {
-                    System.out.println(key + " = " + value);
+                    log.info(key + " = " + value);
                 }
             }
         }

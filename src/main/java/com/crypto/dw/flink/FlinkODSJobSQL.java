@@ -1,6 +1,7 @@
 package com.crypto.dw.flink;
 
 import com.crypto.dw.config.ConfigLoader;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.table.api.bridge.java.StreamTableEnvironment;
 import org.slf4j.Logger;
@@ -10,15 +11,16 @@ import org.slf4j.LoggerFactory;
  * Flink ODS 作业 - Flink SQL 方式
  * 从 Kafka 消费数据并写入 Doris ODS 层
  */
+@Slf4j
 public class FlinkODSJobSQL {
     
     private static final Logger logger = LoggerFactory.getLogger(FlinkODSJobSQL.class);
     
     public static void main(String[] args) throws Exception {
-        System.out.println("==========================================");
-        System.out.println("Flink ODS Job (Flink SQL)");
-        System.out.println("==========================================");
-        System.out.println();
+        log.info("==========================================");
+        log.info("Flink ODS Job (Flink SQL)");
+        log.info("==========================================");
+        
         
         // 加载配置
         ConfigLoader config = ConfigLoader.getInstance();
@@ -35,35 +37,35 @@ public class FlinkODSJobSQL {
         long checkpointInterval = config.getLong("flink.checkpoint.interval", 60000);
         env.enableCheckpointing(checkpointInterval);
         
-        System.out.println("Flink Environment:");
-        System.out.println("  Parallelism: " + parallelism);
-        System.out.println("  Checkpoint Interval: " + checkpointInterval + " ms");
-        System.out.println();
+        log.info("Flink Environment:");
+        log.info("  Parallelism: " + parallelism);
+        log.info("  Checkpoint Interval: " + checkpointInterval + " ms");
+        
         
         // 创建 Kafka Source 表
         String kafkaSourceDDL = createKafkaSourceDDL(config);
-        System.out.println("Creating Kafka Source Table...");
-        System.out.println(kafkaSourceDDL);
-        System.out.println();
+        log.info("Creating Kafka Source Table...");
+        log.info(kafkaSourceDDL);
+        
         tableEnv.executeSql(kafkaSourceDDL);
         
         // 创建 Doris Sink 表
         String dorisSinkDDL = createDorisSinkDDL(config);
-        System.out.println("Creating Doris Sink Table...");
-        System.out.println(dorisSinkDDL);
-        System.out.println();
+        log.info("Creating Doris Sink Table...");
+        log.info(dorisSinkDDL);
+        
         tableEnv.executeSql(dorisSinkDDL);
         
         // 执行 INSERT INTO 语句
         String insertSQL = createInsertSQL();
-        System.out.println("Executing INSERT SQL...");
-        System.out.println(insertSQL);
-        System.out.println();
+        log.info("Executing INSERT SQL...");
+        log.info(insertSQL);
         
-        System.out.println("==========================================");
-        System.out.println("Starting Flink SQL Job...");
-        System.out.println("==========================================");
-        System.out.println();
+        
+        log.info("==========================================");
+        log.info("Starting Flink SQL Job...");
+        log.info("==========================================");
+        
         
         tableEnv.executeSql(insertSQL);
     }

@@ -2,6 +2,7 @@ package com.crypto.dw.flink;
 
 import com.crypto.dw.config.ConfigLoader;
 import com.crypto.dw.config.MetricsConfig;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.table.api.bridge.java.StreamTableEnvironment;
@@ -12,15 +13,16 @@ import org.slf4j.LoggerFactory;
  * Flink DWD 作业 - Flink SQL 方式
  * 从 ODS 层读取数据，进行清洗和字段补充，写入 DWD 层
  */
+@Slf4j
 public class FlinkDWDJobSQL {
     
     private static final Logger logger = LoggerFactory.getLogger(FlinkDWDJobSQL.class);
     
     public static void main(String[] args) throws Exception {
-        System.out.println("==========================================");
-        System.out.println("Flink DWD Job (Flink SQL)");
-        System.out.println("==========================================");
-        System.out.println();
+        log.info("==========================================");
+        log.info("Flink DWD Job (Flink SQL)");
+        log.info("==========================================");
+        
         
         // 加载配置
         ConfigLoader config = ConfigLoader.getInstance();
@@ -60,33 +62,33 @@ public class FlinkDWDJobSQL {
         long checkpointInterval = config.getLong("flink.checkpoint.interval", 60000);
         env.enableCheckpointing(checkpointInterval);
         
-        System.out.println("Flink Environment:");
-        System.out.println("  Parallelism: " + parallelism);
-        System.out.println("  Checkpoint Interval: " + checkpointInterval + " ms");
-        System.out.println("  Web UI: http://localhost:8082");
-        System.out.println("  Metrics: Pushgateway at localhost:9091");
-        System.out.println();
+        log.info("Flink Environment:");
+        log.info("  Parallelism: " + parallelism);
+        log.info("  Checkpoint Interval: " + checkpointInterval + " ms");
+        log.info("  Web UI: http://localhost:8082");
+        log.info("  Metrics: Pushgateway at localhost:9091");
+        
         
         // 创建 Kafka Source 表（从 ODS Topic 读取）
         String kafkaSourceDDL = createKafkaSourceDDL(config);
-        System.out.println("Creating Kafka Source Table...");
+        log.info("Creating Kafka Source Table...");
         tableEnv.executeSql(kafkaSourceDDL);
         
         // 创建 Doris DWD Sink 表
         String dorisSinkDDL = createDorisSinkDDL(config);
-        System.out.println("Creating Doris DWD Sink Table...");
+        log.info("Creating Doris DWD Sink Table...");
         tableEnv.executeSql(dorisSinkDDL);
         
         // 执行 INSERT INTO 语句（包含数据清洗和字段补充逻辑）
         String insertSQL = createInsertSQL();
-        System.out.println("Executing INSERT SQL...");
-        System.out.println(insertSQL);
-        System.out.println();
+        log.info("Executing INSERT SQL...");
+        log.info(insertSQL);
         
-        System.out.println("==========================================");
-        System.out.println("Starting Flink DWD SQL Job...");
-        System.out.println("==========================================");
-        System.out.println();
+        
+        log.info("==========================================");
+        log.info("Starting Flink DWD SQL Job...");
+        log.info("==========================================");
+        
         
         // 执行 INSERT 语句并等待作业完成
         // 注意：executeSql 对于 INSERT 语句会异步执行，需要调用 await() 等待
@@ -95,17 +97,17 @@ public class FlinkDWDJobSQL {
             var tableResult = tableEnv.executeSql(insertSQL);
             
             logger.info("Flink DWD SQL 作业已提交，Job ID: {}", tableResult.getJobClient().get().getJobID());
-            System.out.println("✓ Flink DWD SQL 作业已启动");
-            System.out.println("✓ 作业将持续运行，处理 Kafka 数据并写入 Doris");
-            System.out.println("✓ 按 Ctrl+C 停止作业");
-            System.out.println();
+            log.info("✓ Flink DWD SQL 作业已启动");
+            log.info("✓ 作业将持续运行，处理 Kafka 数据并写入 Doris");
+            log.info("✓ 按 Ctrl+C 停止作业");
+            
             
             // 等待作业完成（流式作业会一直运行）
             tableResult.await();
             
         } catch (Exception e) {
             logger.error("Flink DWD SQL 作业执行失败", e);
-            System.err.println("✗ 作业执行失败: " + e.getMessage());
+            log.error("✗ 作业执行失败: " + e.getMessage());
             e.printStackTrace();
             throw e;
         }

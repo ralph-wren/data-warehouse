@@ -19,24 +19,24 @@ public class GenerateStreamParkPassword {
         Sha256Hash hash = new Sha256Hash(password, salt, 1024);
         String hashedPassword = hash.toHex();
         
-        System.out.println("========================================");
-        System.out.println("StreamPark 密码生成");
-        System.out.println("========================================");
-        System.out.println();
-        System.out.println("输入:");
-        System.out.println("  密码: " + password);
-        System.out.println("  Salt: " + salt);
-        System.out.println("  算法: SHA-256");
-        System.out.println("  迭代: 1024");
-        System.out.println();
-        System.out.println("输出:");
-        System.out.println("  Password Hash: " + hashedPassword);
-        System.out.println();
-        System.out.println("SQL 更新语句:");
-        System.out.println("  UPDATE t_user SET");
-        System.out.println("    salt = '" + salt + "',");
-        System.out.println("    password = '" + hashedPassword + "'");
-        System.out.println("  WHERE username = 'admin';");
-        System.out.println();
+        log.info("========================================");
+        log.info("StreamPark 密码生成");
+        log.info("========================================");
+        
+        log.info("输入:");
+        log.info("  密码: " + password);
+        log.info("  Salt: " + salt);
+        log.info("  算法: SHA-256");
+        log.info("  迭代: 1024");
+        
+        log.info("输出:");
+        log.info("  Password Hash: " + hashedPassword);
+        
+        log.info("SQL 更新语句:");
+        log.info("  UPDATE t_user SET");
+        log.info("    salt = '" + salt + "',");
+        log.info("    password = '" + hashedPassword + "'");
+        log.info("  WHERE username = 'admin';");
+        
     }
 }

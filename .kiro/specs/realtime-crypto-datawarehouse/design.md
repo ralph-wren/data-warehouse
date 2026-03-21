@@ -1333,9 +1333,9 @@ public class DataCollectorMain {
             
             // 打印统计信息
             CollectorMetrics metrics = collector.getMetrics();
-            System.out.println("Total processed: " + metrics.getTotalProcessed());
-            System.out.println("Success count: " + metrics.getSuccessCount());
-            System.out.println("Failure count: " + metrics.getFailureCount());
+            log.info("Total processed: " + metrics.getTotalProcessed());
+            log.info("Success count: " + metrics.getSuccessCount());
+            log.info("Failure count: " + metrics.getFailureCount());
             
         } catch (Exception e) {
             e.printStackTrace();

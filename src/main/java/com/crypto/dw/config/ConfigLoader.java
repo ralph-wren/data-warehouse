@@ -37,18 +37,32 @@ public class ConfigLoader {
             env = "dev";
         }
         
+        System.out.println("Loading configuration for environment: " + env);
+        
         // 加载基础配置
         Map<String, Object> baseConfig = loadYamlFile("application.yml");
+        if (baseConfig.isEmpty()) {
+            System.err.println("ERROR: Failed to load base configuration file: application.yml");
+            System.err.println("Please ensure the file exists in src/main/resources/config/");
+            // 不要调用 System.exit()，而是使用空配置继续
+        }
         
         // 加载环境特定配置
         String envConfigFile = "application-" + env + ".yml";
         Map<String, Object> envConfig = loadYamlFile(envConfigFile);
+        if (envConfig.isEmpty()) {
+            System.out.println("Warning: Environment-specific config file not found: " + envConfigFile);
+            System.out.println("Using base configuration only");
+        }
         
         // 合并配置
         config = mergeConfig(baseConfig, envConfig);
         
         // 解析环境变量
         config = resolveEnvVars(config);
+        
+        System.out.println("Configuration loaded successfully");
+        System.out.println("Total config keys: " + countKeys(config));
     }
     
     /**
@@ -134,7 +148,9 @@ public class ConfigLoader {
             String envVarValue = System.getenv(envVarName);
             
             if (envVarValue == null) {
-                System.err.println("Warning: Environment variable not found: " + envVarName);
+                // 对于可选的环境变量（如 OKX API 密钥），使用空字符串
+                // 对于必需的环境变量，应该在使用时检查
+                System.out.println("Info: Environment variable not set: " + envVarName + " (using empty string)");
                 envVarValue = "";
             }
             
@@ -143,6 +159,22 @@ public class ConfigLoader {
         
         matcher.appendTail(result);
         return result.toString();
+    }
+    
+    /**
+     * 计算配置项数量（用于调试）
+     */
+    @SuppressWarnings("unchecked")
+    private int countKeys(Map<String, Object> map) {
+        int count = 0;
+        for (Object value : map.values()) {
+            if (value instanceof Map) {
+                count += countKeys((Map<String, Object>) value);
+            } else {
+                count++;
+            }
+        }
+        return count;
     }
     
     /**

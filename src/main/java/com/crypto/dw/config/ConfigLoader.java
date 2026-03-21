@@ -43,10 +43,13 @@ public class ConfigLoader {
      * 这样可以支持：
      * 1. 环境变量：export APP_ENV=docker
      * 2. JVM 参数：-DAPP_ENV=docker
-     * 3. StreamPark Dynamic Properties：APP_ENV=docker
+     * 3. StreamPark Program Args：--APP_ENV docker
+     * 
+     * 注意：每个环境配置文件（application-{env}.yml）都是完整独立的配置，
+     *      不再需要加载基础配置文件（application.yml）并合并
      */
     private void loadConfig() {
-        // 优先从 System Property 读取（支持 StreamPark Dynamic Properties）
+        // 优先从 System Property 读取（支持 StreamPark Program Args）
         String env = System.getProperty("APP_ENV");
         
         // 如果 System Property 没有，再从环境变量读取
@@ -63,43 +66,53 @@ public class ConfigLoader {
         log.info("  System Property APP_ENV: " + System.getProperty("APP_ENV"));
         log.info("  Environment Variable APP_ENV: " + System.getenv("APP_ENV"));
         
-        // 加载基础配置
-        Map<String, Object> baseConfig = loadYamlFile("application.yml");
-        if (baseConfig.isEmpty()) {
-            log.error("ERROR: Failed to load base configuration file: application.yml");
-            log.error("Please ensure the file exists in src/main/resources/config/");
-            // 不要调用 System.exit()，而是使用空配置继续
-        }
-        
-        // 加载环境特定配置
+        // 直接加载环境特定配置文件（完整独立的配置）
         String envConfigFile = "application-" + env + ".yml";
-        Map<String, Object> envConfig = loadYamlFile(envConfigFile);
-        if (envConfig.isEmpty()) {
-            log.info("Warning: Environment-specific config file not found: " + envConfigFile);
-            log.info("Using base configuration only");
+        config = loadYamlFile(envConfigFile);
+        
+        if (config.isEmpty()) {
+            log.error("Error: Environment-specific config file not found: " + envConfigFile);
+            log.error("Please ensure the config file exists in src/main/resources/config/");
+            // 使用空配置，避免 NPE
+            config = new HashMap<>();
+        } else {
+            log.info("Configuration loaded successfully from: " + envConfigFile);
         }
         
-        // 合并配置
-        config = mergeConfig(baseConfig, envConfig);
-        
-        // 解析环境变量
+        // 解析环境变量引用（如 ${OKX_API_KEY}）
         config = resolveEnvVars(config);
         
-        log.info("Configuration loaded successfully");
         log.info("Total config keys: " + countKeys(config));
     }
     
     /**
      * 加载 YAML 文件
+     * 支持从 classpath 加载配置文件
      */
     private Map<String, Object> loadYamlFile(String filename) {
         try {
             Yaml yaml = new Yaml();
-            InputStream inputStream = getClass().getClassLoader()
-                .getResourceAsStream("config/" + filename);
+            
+            // 尝试多种路径加载配置文件
+            InputStream inputStream = null;
+            String[] paths = {
+                "config/" + filename,  // 标准路径
+                filename,              // 根路径
+                "/" + filename,        // 绝对路径
+                "/config/" + filename  // 绝对路径 + config
+            };
+            
+            for (String path : paths) {
+                inputStream = getClass().getClassLoader().getResourceAsStream(path);
+                if (inputStream != null) {
+                    log.info("Successfully loaded config file from path: " + path);
+                    break;
+                }
+            }
             
             if (inputStream == null) {
                 log.info("Warning: Config file not found: " + filename);
+                log.info("Tried paths: " + String.join(", ", paths));
                 return new HashMap<>();
             }
             
@@ -112,31 +125,7 @@ public class ConfigLoader {
         }
     }
     
-    /**
-     * 合并配置（envConfig 覆盖 baseConfig）
-     */
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> mergeConfig(Map<String, Object> base, Map<String, Object> override) {
-        Map<String, Object> result = new HashMap<>(base);
-        
-        for (Map.Entry<String, Object> entry : override.entrySet()) {
-            String key = entry.getKey();
-            Object value = entry.getValue();
-            
-            if (value instanceof Map && result.get(key) instanceof Map) {
-                // 递归合并嵌套 Map
-                result.put(key, mergeConfig(
-                    (Map<String, Object>) result.get(key),
-                    (Map<String, Object>) value
-                ));
-            } else {
-                result.put(key, value);
-            }
-        }
-        
-        return result;
-    }
-    
+
     /**
      * 解析环境变量引用
      */

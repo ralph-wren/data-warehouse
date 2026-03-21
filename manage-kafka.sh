@@ -52,9 +52,9 @@ case "$ACTION" in
         
     restart)
         echo "重启 Kafka 集群..."
-        $0 stop
+        bash manage-kafka.sh stop
         sleep 3
-        $0 start
+        bash manage-kafka.sh start
         ;;
         
     *)

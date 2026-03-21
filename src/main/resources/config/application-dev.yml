@@ -1,30 +1,35 @@
-# 开发环境配置
+# 开发环境配置（本地运行）
 # 覆盖 application.yml 中的配置
+# 使用方式：设置环境变量 APP_ENV=dev
 
 # OKX 配置
 okx:
   # 订阅的交易对（逗号分隔）
-  # 4 个交易对对应 4 个 Kafka 分区，数据会均匀分布
+  # 多个交易对对应多个 Kafka 分区，数据会均匀分布
   symbols: BTC-USDT,ETH-USDT,SOL-USDT,BNB-USDT,TRUMP-USDT,XRP-USDT,LTC-USDT,BCH-USDT,NMR-USDT,RECALL-USDT,PUMP-USDT
 
 # Kafka 配置
+# 注意：本地开发环境使用 localhost
 kafka:
-  bootstrap-servers: localhost:9092
+  bootstrap-servers: localhost:9092  # 本地 Kafka 地址
   consumer:
     startup-mode: earliest  # 消费模式: earliest（从头开始）, latest（从最新开始）, committed（从上次提交位置开始）
 
 # Doris 配置
+# 注意：本地开发环境使用 localhost 或 127.0.0.1
 doris:
   fe:
-    http-url: http://127.0.0.1:8030
-    jdbc-url: jdbc:mysql://127.0.0.1:9030
+    http-url: http://127.0.0.1:8030  # 本地 Doris FE 地址
+    jdbc-url: jdbc:mysql://127.0.0.1:9030  # 本地 Doris FE JDBC 地址
     username: root
     password: ""
+  be:
+    nodes: "127.0.0.1:8040"  # 本地 Doris BE 地址
 
 # Flink 配置
 flink:
   execution:
-    parallelism: 4
+    parallelism: 4  # 本地开发可以使用较高并行度
   checkpoint:
     interval: 60000  # 60 秒（增加间隔，减少 Checkpoint 频率）
     timeout: 300000  # 5 分钟（增加超时时间，避免 Checkpoint 失败）
@@ -32,4 +37,5 @@ flink:
 # 应用配置
 application:
   logging:
-    level: DEBUG
+    level: DEBUG  # 本地开发使用 DEBUG 级别，方便调试
+

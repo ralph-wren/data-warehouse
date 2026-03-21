@@ -21,6 +21,7 @@ services:
     networks:
       - flink-net
       - default  # 连接到默认网络（Kafka）
+      - doris-net  # 连接到 Doris 网络
     restart: unless-stopped
 
   taskmanager:
@@ -39,6 +40,7 @@ services:
     networks:
       - flink-net
       - default  # 连接到默认网络（Kafka）
+      - doris-net  # 连接到 Doris 网络
     restart: unless-stopped
 
 networks:
@@ -47,3 +49,6 @@ networks:
   default:
     external: true
     name: data-warehouse_default
+  doris-net:  # 添加 Doris 网络
+    external: true
+    name: data-warehouse_doris-net

@@ -1,0 +1,45 @@
+# Docker 环境配置
+# 用于在 Docker 容器中运行 Flink 作业
+# 覆盖 application.yml 中的配置
+
+# OKX 配置
+okx:
+  # 订阅的交易对（逗号分隔）
+  # 多个交易对对应多个 Kafka 分区，数据会均匀分布
+  symbols: BTC-USDT,ETH-USDT,SOL-USDT,BNB-USDT,TRUMP-USDT,XRP-USDT,LTC-USDT,BCH-USDT,NMR-USDT,RECALL-USDT,PUMP-USDT
+
+# Kafka 配置
+# 注意：在 Docker 容器中，使用容器名称而不是 localhost
+kafka:
+  bootstrap-servers: kafka:9092  # Docker 容器名称
+  consumer:
+    startup-mode: earliest  # 消费模式: earliest（从头开始）, latest（从最新开始）, committed（从上次提交位置开始）
+
+# Doris 配置
+# 注意：在 Docker 容器中运行时，使用容器名称而不是 127.0.0.1
+doris:
+  fe:
+    http-url: http://doris-fe:8030  # Docker 容器名称
+    jdbc-url: jdbc:mysql://doris-fe:9030  # Docker 容器名称
+    username: root
+    password: ""
+  be:
+    nodes: "doris-be:8040"  # Docker 容器名称
+
+# Flink 配置
+flink:
+  execution:
+    parallelism: 4  # Docker 环境可以使用更高的并行度
+  checkpoint:
+    interval: 60000  # 60 秒
+    timeout: 300000  # 5 分钟
+  state:
+    # Docker 环境使用容器内路径
+    checkpoint-dir: file:///opt/flink/checkpoints
+    savepoint-dir: file:///opt/flink/savepoints
+
+# 应用配置
+application:
+  logging:
+    level: INFO  # Docker 环境使用 INFO 级别，减少日志量
+    file: /opt/flink/logs/crypto-dw.log  # Docker 容器内路径

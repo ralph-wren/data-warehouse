@@ -44,6 +44,19 @@ public class FlinkODSJobDataStream {
         log.info("Flink ODS Job (官方 Doris Connector)");
         log.info("==========================================");
 
+        // 诊断日志：输出所有相关的 System Properties 和环境变量
+        log.info("=== 诊断信息 ===");
+        log.info("System Property APP_ENV: " + System.getProperty("APP_ENV"));
+        log.info("Environment Variable APP_ENV: " + System.getenv("APP_ENV"));
+        log.info("所有 System Properties:");
+        System.getProperties().forEach((key, value) -> {
+            String keyStr = key.toString();
+            // 只输出我们关心的属性
+            if (keyStr.startsWith("APP_") || keyStr.contains("flink") || keyStr.contains("kafka") || keyStr.contains("doris")) {
+                log.info("  " + keyStr + " = " + value);
+            }
+        });
+        log.info("================");
         
         // 加载配置
         ConfigLoader config = ConfigLoader.getInstance();

@@ -27,7 +27,8 @@ services:
     depends_on:
       - zookeeper
     ports:
-      - "9092:9092"  # 宿主机访问端口（映射到容器的 9092）
+      - "9092:9092"  # Docker 内部访问端口
+      - "9093:9093"  # 宿主机访问端口
       - "9999:9999"  # JMX 端口（用于监控）
     environment:
       # Kafka Broker 配置
@@ -35,11 +36,11 @@ services:
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
       
       # 监听器配置（支持内外部访问）
-      # PLAINTEXT: Docker 内部通信，监听 29092，广播为 kafka:9092
-      # PLAINTEXT_HOST: 宿主机访问，监听 9092，广播为 localhost:9092
+      # PLAINTEXT: Docker 内部通信，监听 9092，广播为 kafka:9092
+      # PLAINTEXT_HOST: 宿主机访问，监听 9093，广播为 localhost:9093
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9092
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9093
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:9093
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       
       # 性能配置

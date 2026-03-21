@@ -24,8 +24,10 @@ case "$ACTION" in
         echo "验证 Java 版本..."
         echo "JobManager:"
         docker exec flink-jobmanager java -version 2>&1 | head -1
-        echo "TaskManager:"
-        docker exec flink-taskmanager java -version 2>&1 | head -1
+        echo "TaskManager-1:"
+        docker exec flink-taskmanager-1 java -version 2>&1 | head -1
+        echo "TaskManager-2:"
+        docker exec flink-taskmanager-2 java -version 2>&1 | head -1
         
         echo "✅ Flink 启动完成"
         echo "Web UI: http://localhost:8081"
@@ -39,9 +41,9 @@ case "$ACTION" in
         
     restart)
         echo "重启 Flink 集群..."
-        $0 stop
+        bash manage-flink.sh stop
         sleep 3
-        $0 start
+        bash manage-flink.sh start
         ;;
         
     *)

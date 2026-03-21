@@ -24,10 +24,31 @@ services:
       - doris-net  # 连接到 Doris 网络
     restart: unless-stopped
 
-  taskmanager:
+  # TaskManager 1
+  taskmanager-1:
     image: flink:1.17.0-scala_2.12-java11
-    container_name: flink-taskmanager
-    hostname: taskmanager
+    container_name: flink-taskmanager-1
+    hostname: taskmanager-1
+    depends_on:
+      - jobmanager
+    command: taskmanager
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: jobmanager
+        taskmanager.numberOfTaskSlots: 4
+        parallelism.default: 4
+    networks:
+      - flink-net
+      - default  # 连接到默认网络（Kafka）
+      - doris-net  # 连接到 Doris 网络
+    restart: unless-stopped
+
+  # TaskManager 2
+  taskmanager-2:
+    image: flink:1.17.0-scala_2.12-java11
+    container_name: flink-taskmanager-2
+    hostname: taskmanager-2
     depends_on:
       - jobmanager
     command: taskmanager

@@ -75,6 +75,13 @@ public class FlinkODSJobDataStream {
         
         // 加载配置
         ConfigLoader config = ConfigLoader.getInstance();
+        
+        // 打印配置信息（调试用）
+        log.info("=== 配置信息 ===");
+        log.info("Kafka Bootstrap Servers: " + config.getString("kafka.bootstrap-servers"));
+        log.info("Kafka Topic: " + config.getString("kafka.topic.crypto-ticker"));
+        log.info("Doris FE URL: " + config.getString("doris.fe.http-url"));
+        log.info("================");
 
         // 创建 Flink 执行环境（启用 Web UI 和 Metrics）
         Configuration flinkConfig = new Configuration();

@@ -5,7 +5,7 @@ version: '3.8'
 
 services:
   jobmanager:
-    image: flink:1.17.0-scala_2.12-java8
+    image: flink:1.17.0-scala_2.12-java11
     container_name: flink-jobmanager
     hostname: jobmanager
     ports:
@@ -25,7 +25,7 @@ services:
     restart: unless-stopped
 
   taskmanager:
-    image: flink:1.17.0-scala_2.12-java8
+    image: flink:1.17.0-scala_2.12-java11
     container_name: flink-taskmanager
     hostname: taskmanager
     depends_on:

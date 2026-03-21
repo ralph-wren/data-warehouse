@@ -1,0 +1,76 @@
+#
+# StreamPark 自定义配置文件
+# 使用 MySQL（Doris）作为元数据存储
+#
+
+logging:
+  level:
+    root: info
+
+server:
+  port: 10000
+  session:
+    # 用户登录会话有效期，超过此时间用户将自动登出
+    # 单位: s|m|h|d, s: 秒, m: 分钟, h: 小时, d: 天
+    ttl: 2h
+  undertow:
+    buffer-size: 1024
+    direct-buffers: true
+    threads:
+      io: 16
+      worker: 256
+
+# 系统数据库配置 - 使用本地 MySQL
+datasource:
+  dialect: mysql  # 使用 MySQL 方言
+  # MySQL 连接配置
+  username: root
+  password: "Hg19951030"  # MySQL 密码
+  # JDBC URL - 连接到本地 MySQL
+  # 注意：使用 host.docker.internal 访问宿主机的 MySQL（Windows/Mac）
+  url: jdbc:mysql://host.docker.internal:3306/streampark?useUnicode=true&characterEncoding=UTF-8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+
+streampark:
+  workspace:
+    # 本地工作空间，存储克隆的项目和编译的项目
+    # 不要设置在 $APP_HOME 下，设置到 $APP_HOME 外部的目录
+    local: /tmp/streampark
+    # Jars 的 HDFS 根路径
+    remote: hdfs:///streampark/
+  proxy:
+    # Lark 代理地址，默认 https://open.feishu.cn
+    lark-url:
+    # Hadoop YARN 代理路径，例如：Knox 处理地址 https://streampark.com:8443/proxy/yarn
+    yarn-url:
+  yarn:
+    # Flink on YARN 或 Spark on YARN，从 YARN 监控作业状态
+    http-auth: 'simple'  # 默认 simple，或 kerberos
+  # Flink on YARN 或 Spark on YARN，HADOOP_USER_NAME
+  hadoop-user-name: hdfs
+  project:
+    # 允许同时运行的项目数量，如果没有限制，可以配置 -1
+    max-build: 16
+  # OpenAPI 白名单，可以定义多个 OpenAPI，用空格或逗号分隔
+  openapi.white-list:
+
+# Flink on YARN 或 Spark on YARN，当 Hadoop 集群启用 Kerberos 认证时，需要设置 Kerberos 认证参数
+security:
+  kerberos:
+    login:
+      debug: false
+      enable: false
+      keytab:
+      krb5:
+      principal:
+    ttl: 2h # 单位 [s|m|h|d]
+
+# 使用 LDAP 登录 StreamPark
+ldap:
+  base-dn: dc=streampark,dc=com
+  enable: false
+  username: cn=Manager,dc=streampark,dc=com
+  password: streampark
+  urls: ldap://99.99.99.99:389
+  user:
+    email-attribute: mail
+    identity-attribute: uid

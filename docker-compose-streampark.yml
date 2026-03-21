@@ -12,16 +12,15 @@ services:
       - "10000:10000"  # StreamPark Web UI
     environment:
       - TZ=Asia/Shanghai  # 中国时区
-      - DATASOURCE_DIALECT=h2  # 使用 H2 内置数据库（简单部署）
       # 字符编码配置 - 支持中文文件名
       - LANG=C.UTF-8
       - LC_ALL=C.UTF-8
       - JAVA_TOOL_OPTIONS=-Dfile.encoding=UTF-8
-      # 如果需要使用 MySQL，可以配置以下参数：
-      # - DATASOURCE_DIALECT=mysql
-      # - DATASOURCE_URL=jdbc:mysql://host.docker.internal:3306/streampark?useSSL=false&useUnicode=true&characterEncoding=UTF-8&allowPublicKeyRetrieval=false&useJDBCCompliantTimezoneShift=true&useLegacyDatetimeCode=false&serverTimezone=GMT%2B8
-      # - DATASOURCE_USERNAME=root
-      # - DATASOURCE_PASSWORD=your_password
+      # MySQL 数据库配置 - 使用环境变量配置数据库连接
+      - SPRING_DATASOURCE_DIALECT=mysql
+      - SPRING_DATASOURCE_URL=jdbc:mysql://host.docker.internal:3306/streampark?useUnicode=true&characterEncoding=UTF-8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+      - SPRING_DATASOURCE_USERNAME=root
+      - SPRING_DATASOURCE_PASSWORD=Hg19951030
     volumes:
       # 挂载 Docker socket，允许 StreamPark 管理容器
       - /var/run/docker.sock:/var/run/docker.sock
@@ -33,6 +32,10 @@ services:
       - E:\DataFiles\flink-1.17.0:/opt/flink:ro
       # 挂载 Maven 本地仓库 - 避免重复下载依赖，节省时间和带宽
       - ~/.m2/repository:/root/.m2/repository
+      # 挂载自定义配置文件 - 使用 MySQL（Doris）作为元数据存储
+      - ./streampark-config.yaml:/streampark/conf/config.yaml:ro
+      # 挂载 MySQL 驱动到容器 lib 目录 - 支持 MySQL/Doris 连接
+      - ~/.m2/repository/com/mysql/mysql-connector-j/8.3.0/mysql-connector-j-8.3.0.jar:/streampark/lib/mysql-connector-j-8.3.0.jar:ro
       # 如果有 Kubernetes 配置，可以挂载
       # - ~/.kube:/root/.kube:ro
     privileged: true

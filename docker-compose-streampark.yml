@@ -13,7 +13,10 @@ services:
     environment:
       - TZ=Asia/Shanghai  # 中国时区
       - DATASOURCE_DIALECT=h2  # 使用 H2 内置数据库（简单部署）
-      # 注意：不设置 JAVA_HOME，使用 StreamPark 容器内置的 Java
+      # 字符编码配置 - 支持中文文件名
+      - LANG=C.UTF-8
+      - LC_ALL=C.UTF-8
+      - JAVA_TOOL_OPTIONS=-Dfile.encoding=UTF-8
       # 如果需要使用 MySQL，可以配置以下参数：
       # - DATASOURCE_DIALECT=mysql
       # - DATASOURCE_URL=jdbc:mysql://host.docker.internal:3306/streampark?useSSL=false&useUnicode=true&characterEncoding=UTF-8&allowPublicKeyRetrieval=false&useJDBCCompliantTimezoneShift=true&useLegacyDatetimeCode=false&serverTimezone=GMT%2B8
@@ -27,10 +30,9 @@ services:
       # StreamPark 数据持久化（使用本地目录）
       - ./streampark-data:/streampark/data
       # 挂载 Flink 到容器（只读）
-      - /e/DataFiles/flink-1.17.0:/opt/flink:ro
+      - E:\DataFiles\flink-1.17.0:/opt/flink:ro
       # 挂载 Maven 本地仓库 - 避免重复下载依赖，节省时间和带宽
       - ~/.m2/repository:/root/.m2/repository
-      # 注意：不挂载 JDK，使用 StreamPark 容器内置的 Java
       # 如果有 Kubernetes 配置，可以挂载
       # - ~/.kube:/root/.kube:ro
     privileged: true

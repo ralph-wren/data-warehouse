@@ -38,14 +38,30 @@ public class ConfigLoader {
     
     /**
      * 加载配置文件
+     * 
+     * 优先级：System Property > Environment Variable > 默认值
+     * 这样可以支持：
+     * 1. 环境变量：export APP_ENV=docker
+     * 2. JVM 参数：-DAPP_ENV=docker
+     * 3. StreamPark Dynamic Properties：APP_ENV=docker
      */
     private void loadConfig() {
-        String env = System.getenv("APP_ENV");
+        // 优先从 System Property 读取（支持 StreamPark Dynamic Properties）
+        String env = System.getProperty("APP_ENV");
+        
+        // 如果 System Property 没有，再从环境变量读取
+        if (env == null || env.isEmpty()) {
+            env = System.getenv("APP_ENV");
+        }
+        
+        // 如果都没有，使用默认值
         if (env == null || env.isEmpty()) {
             env = "dev";
         }
         
         log.info("Loading configuration for environment: " + env);
+        log.info("  System Property APP_ENV: " + System.getProperty("APP_ENV"));
+        log.info("  Environment Variable APP_ENV: " + System.getenv("APP_ENV"));
         
         // 加载基础配置
         Map<String, Object> baseConfig = loadYamlFile("application.yml");

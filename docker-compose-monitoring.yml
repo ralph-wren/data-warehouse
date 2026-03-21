@@ -90,39 +90,10 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
-  # MySQL Exporter - 用于监控 Doris(通过 MySQL 协议)
-  # 注意: Doris 不完全兼容 MySQL,只采集基本的全局状态指标
-  mysql-exporter:
-    image: prom/mysqld-exporter:v0.14.0
-    container_name: mysql-exporter
-    ports:
-      - "9104:9104"
-    environment:
-      # 连接宿主机的 Doris
-      - DATA_SOURCE_NAME=root:@tcp(host.docker.internal:9030)/
-    # 只采集全局状态,禁用所有其他采集器
-    command:
-      - '--collect.global_status'
-      - '--no-collect.global_variables'
-      - '--no-collect.slave_status'
-      - '--no-collect.info_schema.innodb_metrics'
-      - '--no-collect.info_schema.innodb_tablespaces'
-      - '--no-collect.info_schema.innodb_cmp'
-      - '--no-collect.info_schema.innodb_cmpmem'
-      - '--no-collect.info_schema.query_response_time'
-      - '--no-collect.info_schema.processlist'
-      - '--no-collect.info_schema.tables'
-      - '--no-collect.info_schema.tablestats'
-      - '--no-collect.info_schema.userstats'
-      - '--no-collect.perf_schema.eventswaits'
-      - '--no-collect.perf_schema.file_events'
-      - '--no-collect.perf_schema.tableiowaits'
-      - '--no-collect.perf_schema.tablelocks'
-    networks:
-      - monitoring-net
-    restart: unless-stopped
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+  # 注意: Doris 有原生的 Prometheus metrics 端点
+  # FE: http://host.docker.internal:8030/metrics
+  # BE: http://host.docker.internal:8040/metrics
+  # 不需要 MySQL Exporter，直接在 Prometheus 配置中抓取
 
 networks:
   monitoring-net:

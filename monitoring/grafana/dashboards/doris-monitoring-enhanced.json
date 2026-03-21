@@ -1,0 +1,703 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": "-- Grafana --",
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "gnetId": null,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {"axisLabel": "查询/秒", "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2},
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "id": 1,
+      "targets": [
+        {"expr": "doris_fe_qps", "legendFormat": "QPS", "refId": "A"},
+        {"expr": "doris_fe_rps", "legendFormat": "RPS (请求/秒)", "refId": "B"}
+      ],
+      "title": "FE - 查询速率 (QPS/RPS)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {"axisLabel": "毫秒", "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2},
+          "unit": "ms"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "id": 2,
+      "targets": [
+        {"expr": "doris_fe_query_latency_ms{quantile=\"0.95\"}", "legendFormat": "P95 延迟", "refId": "A"},
+        {"expr": "doris_fe_query_latency_ms{quantile=\"0.99\"}", "legendFormat": "P99 延迟", "refId": "B"}
+      ],
+      "title": "FE - 查询延迟",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {"axisLabel": "错误率", "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2},
+          "unit": "percentunit"
+        }
+      },
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 8},
+      "id": 3,
+      "targets": [
+        {"expr": "doris_fe_query_err_rate", "legendFormat": "查询错误率", "refId": "A"}
+      ],
+      "title": "FE - 查询错误率",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [],
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]},
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 8},
+      "id": 4,
+      "targets": [
+        {"expr": "doris_fe_query_err", "legendFormat": "错误总数", "refId": "A"}
+      ],
+      "title": "FE - 查询错误总数",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [],
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 8},
+      "id": 5,
+      "targets": [
+        {"expr": "doris_fe_query_instance_num", "legendFormat": "查询实例数", "refId": "A"}
+      ],
+      "title": "FE - 查询实例数",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {"axisLabel": "连接数", "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2},
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "id": 6,
+      "targets": [
+        {"expr": "doris_fe_connection_total", "legendFormat": "连接总数 - {{user}}", "refId": "A"}
+      ],
+      "title": "FE - 连接数 (按用户)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [],
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 50}, {"color": "red", "value": 100}]},
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+      "id": 7,
+      "targets": [
+        {"expr": "sum(doris_fe_connection_total)", "legendFormat": "活跃连接总数", "refId": "A"}
+      ],
+      "title": "FE - 活跃连接总数",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {"axisLabel": "字节", "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2},
+          "unit": "bytes"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
+      "id": 8,
+      "targets": [
+        {"expr": "doris_fe_edit_log", "legendFormat": "Edit Log 大小", "refId": "A"}
+      ],
+      "title": "FE - Edit Log 大小",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {"axisLabel": "毫秒", "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2},
+          "unit": "ms"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24},
+      "id": 9,
+      "targets": [
+        {"expr": "doris_fe_edit_log_write_latency_ms", "legendFormat": "Edit Log 写入延迟", "refId": "A"}
+      ],
+      "title": "FE - Edit Log 写入延迟",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {"axisLabel": "毫秒", "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2},
+          "unit": "ms"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 32},
+      "id": 10,
+      "targets": [
+        {"expr": "doris_fe_thrift_rpc_latency_ms", "legendFormat": "Thrift RPC 延迟 - {{name}}", "refId": "A"}
+      ],
+      "title": "FE - Thrift RPC 延迟",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {"axisLabel": "请求/秒", "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2},
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 32},
+      "id": 11,
+      "targets": [
+        {"expr": "rate(doris_fe_thrift_rpc_total[1m])", "legendFormat": "RPC 请求/秒 - {{name}}", "refId": "A"}
+      ],
+      "title": "FE - Thrift RPC 请求速率",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {"axisLabel": "任务数", "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2},
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 40},
+      "id": 12,
+      "targets": [
+        {"expr": "doris_fe_thread_pool{type=\"task_num\"}", "legendFormat": "线程池任务数 - {{name}}", "refId": "A"}
+      ],
+      "title": "FE - 线程池任务数",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {"axisLabel": "队列大小", "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2},
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 40},
+      "id": 13,
+      "targets": [
+        {"expr": "doris_fe_thread_pool{type=\"queue_size\"}", "legendFormat": "线程池队列 - {{name}}", "refId": "A"}
+      ],
+      "title": "FE - 线程池队列大小",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {"axisLabel": "线程数", "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2},
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 40},
+      "id": 14,
+      "targets": [
+        {"expr": "doris_fe_thread_pool{type=\"active_thread_num\"}", "legendFormat": "活跃线程 - {{name}}", "refId": "A"}
+      ],
+      "title": "FE - 线程池活跃线程数",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {"axisLabel": "命中率", "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2},
+          "unit": "percentunit"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 48},
+      "id": 15,
+      "targets": [
+        {"expr": "doris_fe_cache_hit / (doris_fe_cache_hit + doris_fe_cache_miss)", "legendFormat": "Cache 命中率 - {{name}}", "refId": "A"}
+      ],
+      "title": "FE - Cache 命中率",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {"axisLabel": "次数/秒", "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2},
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 48},
+      "id": 16,
+      "targets": [
+        {"expr": "rate(doris_fe_cache_added[1m])", "legendFormat": "Cache 添加/秒 - {{name}}", "refId": "A"}
+      ],
+      "title": "FE - Cache 添加速率",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {"axisLabel": "事务数", "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2},
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 56},
+      "id": 17,
+      "targets": [
+        {"expr": "rate(doris_fe_txn_counter{type=\"begin\"}[1m])", "legendFormat": "开始事务/秒", "refId": "A"},
+        {"expr": "rate(doris_fe_txn_counter{type=\"success\"}[1m])", "legendFormat": "成功事务/秒", "refId": "B"},
+        {"expr": "rate(doris_fe_txn_counter{type=\"failed\"}[1m])", "legendFormat": "失败事务/秒", "refId": "C"}
+      ],
+      "title": "FE - 事务速率",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {"axisLabel": "事务数", "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2},
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 56},
+      "id": 18,
+      "targets": [
+        {"expr": "doris_fe_txn_num", "legendFormat": "运行中事务 - {{db}}", "refId": "A"},
+        {"expr": "doris_fe_publish_txn_num", "legendFormat": "发布中事务 - {{db}}", "refId": "B"}
+      ],
+      "title": "FE - 运行中事务",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {"axisLabel": "字节", "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2},
+          "unit": "bytes"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 64},
+      "id": 19,
+      "targets": [
+        {"expr": "jvm_heap_size_bytes{type=\"used\",job=\"doris-fe\"}", "legendFormat": "FE 堆内存使用", "refId": "A"},
+        {"expr": "jvm_heap_size_bytes{type=\"max\",job=\"doris-fe\"}", "legendFormat": "FE 堆内存最大", "refId": "B"}
+      ],
+      "title": "FE - JVM 堆内存",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {"axisLabel": "次数", "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2},
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 64},
+      "id": 20,
+      "targets": [
+        {"expr": "rate(jvm_gc{job=\"doris-fe\",type=\"count\"}[1m])", "legendFormat": "GC 次数/秒 - {{name}}", "refId": "A"}
+      ],
+      "title": "FE - GC 频率",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [],
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]},
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 72},
+      "id": 21,
+      "targets": [
+        {"expr": "node_info{type=\"is_master\"}", "refId": "A"}
+      ],
+      "title": "FE Master 状态",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [],
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 72},
+      "id": 22,
+      "targets": [
+        {"expr": "node_info{type=\"be_node_num\",state=\"alive\"}", "refId": "A"}
+      ],
+      "title": "BE 节点数 (存活)",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [],
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 72},
+      "id": 23,
+      "targets": [
+        {"expr": "doris_fe_internal_database_num", "refId": "A"}
+      ],
+      "title": "数据库数量",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [],
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 72},
+      "id": 24,
+      "targets": [
+        {"expr": "doris_fe_internal_table_num", "refId": "A"}
+      ],
+      "title": "表数量",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [],
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 76},
+      "id": 25,
+      "targets": [
+        {"expr": "doris_fe_tablet_status_count{type=\"total\"}", "refId": "A"}
+      ],
+      "title": "Tablet 总数",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [],
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]},
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 76},
+      "id": 26,
+      "targets": [
+        {"expr": "doris_fe_tablet_status_count{type=\"unhealthy\"}", "refId": "A"}
+      ],
+      "title": "不健康 Tablet",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {"axisLabel": "请求/秒", "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2},
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 80},
+      "id": 27,
+      "targets": [
+        {"expr": "rate(doris_be_stream_load_txn_request[1m])", "legendFormat": "Stream Load 请求/秒 - {{type}}", "refId": "A"}
+      ],
+      "title": "BE - Stream Load 请求速率",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [],
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 5}, {"color": "red", "value": 10}]},
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 80},
+      "id": 28,
+      "targets": [
+        {"expr": "doris_be_stream_load_current_processing", "legendFormat": "当前处理中的 Stream Load", "refId": "A"}
+      ],
+      "title": "BE - Stream Load 当前处理数",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {"axisLabel": "任务数", "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2},
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 88},
+      "id": 29,
+      "targets": [
+        {"expr": "doris_be_compaction_task_state_total", "legendFormat": "Compaction 任务 - {{state}}", "refId": "A"}
+      ],
+      "title": "BE - Compaction 任务状态",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {"axisLabel": "行数", "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2},
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 88},
+      "id": 30,
+      "targets": [
+        {"expr": "rate(doris_be_compaction_rows_total[1m])", "legendFormat": "Compaction 处理行数/秒 - {{type}}", "refId": "A"}
+      ],
+      "title": "BE - Compaction 处理行数",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [],
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 50}, {"color": "red", "value": 100}]},
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 96},
+      "id": 31,
+      "targets": [
+        {"expr": "doris_be_compaction_max_score", "legendFormat": "最大 Compaction Score - {{type}}", "refId": "A"}
+      ],
+      "title": "BE - 最大 Compaction Score",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {"axisLabel": "命中率", "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2},
+          "unit": "percentunit"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 96},
+      "id": 32,
+      "targets": [
+        {"expr": "doris_be_cache_hit_ratio", "legendFormat": "Cache 命中率 - {{name}}", "refId": "A"}
+      ],
+      "title": "BE - Cache 命中率",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {"axisLabel": "包/秒", "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2},
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 104},
+      "id": 33,
+      "targets": [
+        {"expr": "rate(doris_be_network_send_packets[1m])", "legendFormat": "网络发送包/秒 - {{device}}", "refId": "A"}
+      ],
+      "title": "BE - 网络发送包数",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {"axisLabel": "包/秒", "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2},
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 104},
+      "id": 34,
+      "targets": [
+        {"expr": "rate(doris_be_network_receive_packets[1m])", "legendFormat": "网络接收包/秒 - {{device}}", "refId": "A"}
+      ],
+      "title": "BE - 网络接收包数",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {"axisLabel": "页/秒", "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2},
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 112},
+      "id": 35,
+      "targets": [
+        {"expr": "rate(doris_be_memory_pgpgin[1m])", "legendFormat": "内存页面换入/秒", "refId": "A"}
+      ],
+      "title": "BE - 内存页面换入",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {"axisLabel": "字节", "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2},
+          "unit": "bytes"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 112},
+      "id": 36,
+      "targets": [
+        {"expr": "doris_be_memory_memtable_consumption", "legendFormat": "Memtable 内存消耗", "refId": "A"}
+      ],
+      "title": "BE - Memtable 内存消耗",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {"axisLabel": "字节", "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2},
+          "unit": "bytes"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 120},
+      "id": 37,
+      "targets": [
+        {"expr": "doris_be_disks_total_capacity", "legendFormat": "BE 磁盘总容量 - {{path}}", "refId": "A"},
+        {"expr": "doris_be_disks_avail_capacity", "legendFormat": "BE 磁盘可用容量 - {{path}}", "refId": "B"}
+      ],
+      "title": "BE - 磁盘容量",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [],
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 70}, {"color": "red", "value": 90}]},
+          "unit": "percent"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 120},
+      "id": 38,
+      "targets": [
+        {"expr": "(doris_be_disks_total_capacity - doris_be_disks_avail_capacity) / doris_be_disks_total_capacity * 100", "legendFormat": "磁盘使用率 - {{path}}", "refId": "A"}
+      ],
+      "title": "BE - 磁盘使用率",
+      "type": "gauge"
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 27,
+  "style": "dark",
+  "tags": ["doris", "database", "enhanced"],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "Asia/Shanghai",
+  "title": "Doris 监控 (增强版)",
+  "uid": "doris-enhanced",
+  "version": 1
+}

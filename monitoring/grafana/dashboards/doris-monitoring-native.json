@@ -1,0 +1,528 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": "-- Grafana --",
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "gnetId": null,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisLabel": "查询/秒",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "targets": [
+        {
+          "expr": "doris_fe_qps",
+          "legendFormat": "QPS",
+          "refId": "A"
+        },
+        {
+          "expr": "doris_fe_rps",
+          "legendFormat": "RPS (请求/秒)",
+          "refId": "B"
+        }
+      ],
+      "title": "Doris FE - 查询速率 (QPS/RPS)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisLabel": "毫秒",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2
+          },
+          "unit": "ms"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "id": 2,
+      "targets": [
+        {
+          "expr": "doris_fe_query_latency_ms{quantile=\"0.95\"}",
+          "legendFormat": "P95 延迟",
+          "refId": "A"
+        },
+        {
+          "expr": "doris_fe_query_latency_ms{quantile=\"0.99\"}",
+          "legendFormat": "P99 延迟",
+          "refId": "B"
+        }
+      ],
+      "title": "Doris FE - 查询延迟",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 8
+      },
+      "id": 3,
+      "targets": [
+        {
+          "expr": "node_info{type=\"is_master\"}",
+          "refId": "A"
+        }
+      ],
+      "title": "FE Master 状态",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 8
+      },
+      "id": 4,
+      "targets": [
+        {
+          "expr": "node_info{type=\"be_node_num\",state=\"alive\"}",
+          "refId": "A"
+        }
+      ],
+      "title": "BE 节点数 (存活)",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 8
+      },
+      "id": 5,
+      "targets": [
+        {
+          "expr": "doris_fe_internal_database_num",
+          "refId": "A"
+        }
+      ],
+      "title": "数据库数量",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 8
+      },
+      "id": 6,
+      "targets": [
+        {
+          "expr": "doris_fe_internal_table_num",
+          "refId": "A"
+        }
+      ],
+      "title": "表数量",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisLabel": "事务数",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 12
+      },
+      "id": 7,
+      "targets": [
+        {
+          "expr": "rate(doris_fe_txn_counter{type=\"begin\"}[1m])",
+          "legendFormat": "开始事务/秒",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(doris_fe_txn_counter{type=\"success\"}[1m])",
+          "legendFormat": "成功事务/秒",
+          "refId": "B"
+        },
+        {
+          "expr": "rate(doris_fe_txn_counter{type=\"failed\"}[1m])",
+          "legendFormat": "失败事务/秒",
+          "refId": "C"
+        }
+      ],
+      "title": "Doris FE - 事务速率",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisLabel": "事务数",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 12
+      },
+      "id": 8,
+      "targets": [
+        {
+          "expr": "doris_fe_txn_num",
+          "legendFormat": "运行中事务 - {{db}}",
+          "refId": "A"
+        },
+        {
+          "expr": "doris_fe_publish_txn_num",
+          "legendFormat": "发布中事务 - {{db}}",
+          "refId": "B"
+        }
+      ],
+      "title": "Doris FE - 运行中事务",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisLabel": "字节",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2
+          },
+          "unit": "bytes"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 20
+      },
+      "id": 9,
+      "targets": [
+        {
+          "expr": "jvm_heap_size_bytes{type=\"used\",job=\"doris-fe\"}",
+          "legendFormat": "FE 堆内存使用",
+          "refId": "A"
+        },
+        {
+          "expr": "jvm_heap_size_bytes{type=\"max\",job=\"doris-fe\"}",
+          "legendFormat": "FE 堆内存最大",
+          "refId": "B"
+        }
+      ],
+      "title": "Doris FE - JVM 堆内存",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisLabel": "次数",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 20
+      },
+      "id": 10,
+      "targets": [
+        {
+          "expr": "rate(jvm_gc{job=\"doris-fe\",type=\"count\"}[1m])",
+          "legendFormat": "GC 次数/秒 - {{name}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Doris FE - GC 频率",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 28
+      },
+      "id": 11,
+      "targets": [
+        {
+          "expr": "doris_fe_tablet_status_count{type=\"total\"}",
+          "refId": "A"
+        }
+      ],
+      "title": "Tablet 总数",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 28
+      },
+      "id": 12,
+      "targets": [
+        {
+          "expr": "doris_fe_tablet_status_count{type=\"unhealthy\"}",
+          "refId": "A"
+        }
+      ],
+      "title": "不健康 Tablet",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisLabel": "字节",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2
+          },
+          "unit": "bytes"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 28
+      },
+      "id": 13,
+      "targets": [
+        {
+          "expr": "doris_be_disks_total_capacity",
+          "legendFormat": "BE 磁盘总容量 - {{path}}",
+          "refId": "A"
+        },
+        {
+          "expr": "doris_be_disks_avail_capacity",
+          "legendFormat": "BE 磁盘可用容量 - {{path}}",
+          "refId": "B"
+        }
+      ],
+      "title": "Doris BE - 磁盘容量",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 27,
+  "style": "dark",
+  "tags": ["doris", "database"],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "Asia/Shanghai",
+  "title": "Doris 监控 (原生指标)",
+  "uid": "doris-native",
+  "version": 1
+}

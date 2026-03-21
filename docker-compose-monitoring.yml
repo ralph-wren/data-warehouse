@@ -97,7 +97,8 @@ services:
 
 networks:
   monitoring-net:
-    driver: bridge
+    name: data-warehouse_monitoring-net
+    external: true
 
 volumes:
   prometheus-data:

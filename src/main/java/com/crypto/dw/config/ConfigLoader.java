@@ -91,43 +91,86 @@ public class ConfigLoader {
      * 
      * 注意：添加了详细的调试信息和多种加载方式，以适应不同的运行环境（本地、StreamPark、Docker 等）
      */
+    /**
+     * 加载 YAML 文件
+     * 支持从 classpath 加载配置文件
+     * 
+     * 注意：针对 Flink ChildFirstClassLoader 优化，使用多种加载方式
+     * 方法 1: 标准 ClassLoader 方式
+     * 方法 2: URL + openStream 方式
+     * 方法 3: JAR 文件系统方式（适用于 ChildFirstClassLoader）
+     */
     private Map<String, Object> loadYamlFile(String filename) {
         try {
             Yaml yaml = new Yaml();
-            
+
             // 打印调试信息
             log.info("=== 配置文件加载调试信息 ===");
             log.info("目标文件: " + filename);
             log.info("当前工作目录: " + System.getProperty("user.dir"));
             log.info("ClassLoader: " + getClass().getClassLoader().getClass().getName());
-            
+
             // 尝试多种路径加载配置文件
             InputStream inputStream = null;
             String[] paths = {
                 "config/" + filename,  // 标准路径（推荐）
                 filename,              // 根路径
                 "/" + filename,        // 绝对路径
-                "src/main/resources/config/" + filename,
                 "/config/" + filename  // 绝对路径 + config
             };
-            
+
             String successPath = null;
+
+            // 方法 1: 使用 getResourceAsStream（标准方式）
             for (String path : paths) {
-                log.info("尝试路径: " + path);
+                log.info("尝试路径 (getResourceAsStream): " + path);
                 inputStream = getClass().getClassLoader().getResourceAsStream(path);
                 if (inputStream != null) {
                     successPath = path;
-                    log.info("✅ 成功加载配置文件: " + path);
+                    log.info("✅ 成功加载配置文件 (getResourceAsStream): " + path);
                     break;
                 } else {
                     log.info("❌ 路径不存在: " + path);
                 }
             }
-            
+
+            // 方法 2: 如果方法 1 失败，尝试使用 getResource + openStream（适用于 ChildFirstClassLoader）
+            if (inputStream == null) {
+                log.info("尝试使用 getResource + openStream 方式...");
+                for (String path : paths) {
+                    log.info("尝试路径 (getResource): " + path);
+                    try {
+                        java.net.URL resource = getClass().getClassLoader().getResource(path);
+                        if (resource != null) {
+                            log.info("找到资源 URL: " + resource);
+                            inputStream = resource.openStream();
+                            if (inputStream != null) {
+                                successPath = path;
+                                log.info("✅ 成功加载配置文件 (getResource): " + path);
+                                break;
+                            }
+                        } else {
+                            log.info("❌ 资源不存在: " + path);
+                        }
+                    } catch (Exception e) {
+                        log.info("❌ 加载失败: " + path + " - " + e.getMessage());
+                    }
+                }
+            }
+
+            // 方法 3: 如果方法 2 失败，尝试使用 JAR 文件系统方式（适用于 Flink ChildFirstClassLoader）
+            if (inputStream == null) {
+                log.info("尝试使用 JAR 文件系统方式...");
+                inputStream = loadFromJarFileSystem(filename);
+                if (inputStream != null) {
+                    log.info("✅ 成功加载配置文件 (JAR FileSystem)");
+                }
+            }
+
             if (inputStream == null) {
                 log.error("Error: Config file not found: " + filename);
-                log.error("Tried paths: " + String.join(", ", paths));
-                
+                log.error("Tried all methods: getResourceAsStream, getResource, JAR FileSystem");
+
                 // 尝试列出 classpath 中的资源（调试用）
                 try {
                     java.net.URL resource = getClass().getClassLoader().getResource("config/");
@@ -139,22 +182,22 @@ public class ConfigLoader {
                 } catch (Exception e) {
                     log.info("Cannot list classpath resources: " + e.getMessage());
                 }
-                
+
                 return new HashMap<>();
             }
-            
+
             log.info("开始解析 YAML 文件...");
             Map<String, Object> data = yaml.load(inputStream);
             inputStream.close();
-            
+
             if (data == null || data.isEmpty()) {
                 log.error("Warning: Config file is empty: " + filename);
                 return new HashMap<>();
             }
-            
+
             log.info("✅ 配置文件解析成功，包含 " + data.size() + " 个顶级配置项");
             log.info("=== 配置文件加载完成 ===");
-            
+
             return data;
         } catch (Exception e) {
             log.error("Error loading config file: " + filename);
@@ -163,6 +206,75 @@ public class ConfigLoader {
             return new HashMap<>();
         }
     }
+
+    /**
+     * 使用 JAR 文件系统方式加载配置文件
+     * 这种方式可以绕过 ChildFirstClassLoader 的限制
+     * 
+     * @param filename 配置文件名
+     * @return InputStream 或 null
+     */
+    private InputStream loadFromJarFileSystem(String filename) {
+        try {
+            // 获取当前类的 CodeSource，找到 JAR 文件位置
+            java.security.ProtectionDomain pd = getClass().getProtectionDomain();
+            java.security.CodeSource cs = pd.getCodeSource();
+            if (cs == null) {
+                log.info("CodeSource is null, cannot use JAR FileSystem method");
+                return null;
+            }
+
+            java.net.URL location = cs.getLocation();
+            log.info("CodeSource location: " + location);
+
+            // 如果是 JAR 文件，使用 JAR 文件系统读取
+            if (location.getProtocol().equals("file") && location.getPath().endsWith(".jar")) {
+                String jarPath = location.getPath();
+                log.info("JAR file path: " + jarPath);
+
+                // 创建 JAR 文件系统
+                java.nio.file.FileSystem fs = null;
+                try {
+                    java.net.URI jarUri = new java.net.URI("jar:file:" + jarPath);
+                    fs = java.nio.file.FileSystems.newFileSystem(jarUri, new HashMap<>());
+
+                    // 尝试多种路径
+                    String[] paths = {
+                        "/config/" + filename,
+                        "/config/" + filename.replace("application-", "application-"),
+                        "/" + filename
+                    };
+
+                    for (String path : paths) {
+                        log.info("尝试 JAR 内路径: " + path);
+                        java.nio.file.Path configPath = fs.getPath(path);
+                        if (java.nio.file.Files.exists(configPath)) {
+                            log.info("✅ 找到配置文件: " + path);
+                            return java.nio.file.Files.newInputStream(configPath);
+                        } else {
+                            log.info("❌ 文件不存在: " + path);
+                        }
+                    }
+                } finally {
+                    if (fs != null) {
+                        try {
+                            fs.close();
+                        } catch (Exception e) {
+                            // Ignore close errors
+                        }
+                    }
+                }
+            } else {
+                log.info("Not a JAR file or not file protocol: " + location);
+            }
+
+            return null;
+        } catch (Exception e) {
+            log.info("JAR FileSystem method failed: " + e.getMessage());
+            return null;
+        }
+    }
+
     
 
     /**

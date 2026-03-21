@@ -88,38 +88,77 @@ public class ConfigLoader {
     /**
      * 加载 YAML 文件
      * 支持从 classpath 加载配置文件
+     * 
+     * 注意：添加了详细的调试信息和多种加载方式，以适应不同的运行环境（本地、StreamPark、Docker 等）
      */
     private Map<String, Object> loadYamlFile(String filename) {
         try {
             Yaml yaml = new Yaml();
             
+            // 打印调试信息
+            log.info("=== 配置文件加载调试信息 ===");
+            log.info("目标文件: " + filename);
+            log.info("当前工作目录: " + System.getProperty("user.dir"));
+            log.info("ClassLoader: " + getClass().getClassLoader().getClass().getName());
+            
             // 尝试多种路径加载配置文件
             InputStream inputStream = null;
             String[] paths = {
-                "config/" + filename,  // 标准路径
+                "config/" + filename,  // 标准路径（推荐）
                 filename,              // 根路径
                 "/" + filename,        // 绝对路径
+                "src/main/resources/config/" + filename,
                 "/config/" + filename  // 绝对路径 + config
             };
             
+            String successPath = null;
             for (String path : paths) {
+                log.info("尝试路径: " + path);
                 inputStream = getClass().getClassLoader().getResourceAsStream(path);
                 if (inputStream != null) {
-                    log.info("Successfully loaded config file from path: " + path);
+                    successPath = path;
+                    log.info("✅ 成功加载配置文件: " + path);
                     break;
+                } else {
+                    log.info("❌ 路径不存在: " + path);
                 }
             }
             
             if (inputStream == null) {
-                log.info("Warning: Config file not found: " + filename);
-                log.info("Tried paths: " + String.join(", ", paths));
+                log.error("Error: Config file not found: " + filename);
+                log.error("Tried paths: " + String.join(", ", paths));
+                
+                // 尝试列出 classpath 中的资源（调试用）
+                try {
+                    java.net.URL resource = getClass().getClassLoader().getResource("config/");
+                    if (resource != null) {
+                        log.info("Found config/ directory at: " + resource);
+                    } else {
+                        log.info("config/ directory not found in classpath");
+                    }
+                } catch (Exception e) {
+                    log.info("Cannot list classpath resources: " + e.getMessage());
+                }
+                
                 return new HashMap<>();
             }
             
+            log.info("开始解析 YAML 文件...");
             Map<String, Object> data = yaml.load(inputStream);
-            return data != null ? data : new HashMap<>();
+            inputStream.close();
+            
+            if (data == null || data.isEmpty()) {
+                log.error("Warning: Config file is empty: " + filename);
+                return new HashMap<>();
+            }
+            
+            log.info("✅ 配置文件解析成功，包含 " + data.size() + " 个顶级配置项");
+            log.info("=== 配置文件加载完成 ===");
+            
+            return data;
         } catch (Exception e) {
             log.error("Error loading config file: " + filename);
+            log.error("Exception: " + e.getClass().getName() + ": " + e.getMessage());
             e.printStackTrace();
             return new HashMap<>();
         }

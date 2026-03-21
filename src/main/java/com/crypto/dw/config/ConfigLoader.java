@@ -211,6 +211,9 @@ public class ConfigLoader {
      * 使用 JAR 文件系统方式加载配置文件
      * 这种方式可以绕过 ChildFirstClassLoader 的限制
      * 
+     * 注意：必须在关闭文件系统之前将内容读取到内存中，
+     *      否则会出现 "Inflater has been closed" 错误
+     * 
      * @param filename 配置文件名
      * @return InputStream 或 null
      */
@@ -241,7 +244,6 @@ public class ConfigLoader {
                     // 尝试多种路径
                     String[] paths = {
                         "/config/" + filename,
-                        "/config/" + filename.replace("application-", "application-"),
                         "/" + filename
                     };
 
@@ -250,7 +252,14 @@ public class ConfigLoader {
                         java.nio.file.Path configPath = fs.getPath(path);
                         if (java.nio.file.Files.exists(configPath)) {
                             log.info("✅ 找到配置文件: " + path);
-                            return java.nio.file.Files.newInputStream(configPath);
+                            
+                            // 关键修复：在关闭文件系统之前，将文件内容读取到内存中
+                            // 否则会出现 "Inflater has been closed" 错误
+                            byte[] fileContent = java.nio.file.Files.readAllBytes(configPath);
+                            log.info("✅ 成功读取配置文件内容，大小: " + fileContent.length + " 字节");
+                            
+                            // 返回基于字节数组的 InputStream，不依赖文件系统
+                            return new java.io.ByteArrayInputStream(fileContent);
                         } else {
                             log.info("❌ 文件不存在: " + path);
                         }

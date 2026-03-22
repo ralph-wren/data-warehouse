@@ -1,21 +1,17 @@
 package com.crypto.dw.flink;
 
-import com.alibaba.fastjson2.JSONObject;
 import com.crypto.dw.config.ConfigLoader;
-import com.crypto.dw.config.MetricsConfig;
+import com.crypto.dw.flink.factory.FlinkEnvironmentFactory;
 import com.crypto.dw.flink.watermark.WatermarkStrategyFactory;
 import com.crypto.dw.model.TickerData;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.extern.slf4j.Slf4j;
 import org.apache.doris.flink.cfg.DorisExecutionOptions;
 import org.apache.doris.flink.cfg.DorisOptions;
 import org.apache.doris.flink.cfg.DorisReadOptions;
 import org.apache.doris.flink.sink.DorisSink;
 import org.apache.doris.flink.sink.writer.serializer.SimpleStringSerializer;
-import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
-import org.apache.flink.configuration.Configuration;
 import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer;
 import org.apache.flink.streaming.api.datastream.DataStream;
@@ -26,103 +22,71 @@ import org.slf4j.LoggerFactory;
 import java.util.Properties;
 
 /**
- * Flink ODS 作业 - 使用官方 Doris Connector
+ * Flink ODS 作业 - 使用官方 Doris Connector (DataStream API)
+ * 
  * 从 Kafka 消费数据并写入 Doris ODS 层
+ * 
+ * 重构说明:
+ * - 使用 FlinkEnvironmentFactory 创建 Stream Environment (减少约 60 行代码)
+ * - 保留 DataStream API 的灵活性
+ * - 统一 Web UI 端口和 Metrics 配置
  * 
  * 更新说明:
  * 1. 使用官方 DorisSink 替代自定义 HTTP Stream Load
  * 2. 兼容 Doris 3.1.x 版本
  * 3. 支持自动重试和错误处理
  */ 
-@Slf4j
 public class FlinkODSJobDataStream {
     
     private static final Logger logger = LoggerFactory.getLogger(FlinkODSJobDataStream.class);
     
     public static void main(String[] args) throws Exception {
-        log.info("==========================================");
-        log.info("Flink ODS Job (官方 Doris Connector)");
-        log.info("==========================================");
+        logger.info("==========================================");
+        logger.info("Flink ODS Job (DataStream API)");
+        logger.info("==========================================");
 
         // 诊断日志：输出所有相关的 System Properties 和环境变量
-        log.info("=== 诊断信息 ===");
-        log.info("Program Arguments: " + java.util.Arrays.toString(args));
-        log.info("System Property APP_ENV: " + System.getProperty("APP_ENV"));
-        log.info("Environment Variable APP_ENV: " + System.getenv("APP_ENV"));
+        logger.info("=== 诊断信息 ===");
+        logger.info("Program Arguments: " + java.util.Arrays.toString(args));
+        logger.info("System Property APP_ENV: " + System.getProperty("APP_ENV"));
+        logger.info("Environment Variable APP_ENV: " + System.getenv("APP_ENV"));
         
         // 从程序参数中读取 APP_ENV（支持 StreamPark Remote 模式）
         // 格式：--env docker 或 --APP_ENV docker
-        String envFromArgs = null;
         for (int i = 0; i < args.length - 1; i++) {
             if ("--env".equals(args[i]) || "--APP_ENV".equals(args[i])) {
-                envFromArgs = args[i + 1];
-                log.info("Found APP_ENV in program arguments: " + envFromArgs);
+                String envFromArgs = args[i + 1];
+                logger.info("Found APP_ENV in program arguments: " + envFromArgs);
                 // 设置为 System Property，让 ConfigLoader 能读取到
                 System.setProperty("APP_ENV", envFromArgs);
                 break;
             }
         }
         
-        log.info("所有 System Properties:");
+        logger.info("所有 System Properties:");
         System.getProperties().forEach((key, value) -> {
             String keyStr = key.toString();
             // 只输出我们关心的属性
             if (keyStr.startsWith("APP_") || keyStr.contains("flink") || keyStr.contains("kafka") || keyStr.contains("doris")) {
-                log.info("  " + keyStr + " = " + value);
+                logger.info("  " + keyStr + " = " + value);
             }
         });
-        log.info("================");
+        logger.info("================");
         
         // 加载配置
         ConfigLoader config = ConfigLoader.getInstance();
         
         // 打印配置信息（调试用）
-        log.info("=== 配置信息 ===");
-        log.info("Kafka Bootstrap Servers: " + config.getString("kafka.bootstrap-servers"));
-        log.info("Kafka Topic: " + config.getString("kafka.topic.crypto-ticker"));
-        log.info("Doris FE URL: " + config.getString("doris.fe.http-url"));
-        log.info("================");
+        logger.info("=== 配置信息 ===");
+        logger.info("Kafka Bootstrap Servers: " + config.getString("kafka.bootstrap-servers"));
+        logger.info("Kafka Topic: " + config.getString("kafka.topic.crypto-ticker"));
+        logger.info("Doris FE URL: " + config.getString("doris.fe.http-url"));
+        logger.info("================");
 
-        // 创建 Flink 执行环境（启用 Web UI 和 Metrics）
-        Configuration flinkConfig = new Configuration();
-
-        // 启用 Web UI（注意：端口参数必须是 int 类型）
-        flinkConfig.setBoolean("web.submit.enable", config.getBoolean("flink.web.submit.enable", true));
-        flinkConfig.setBoolean("web.cancel.enable", config.getBoolean("flink.web.cancel.enable", true));
-        flinkConfig.setInteger("rest.port", config.getInt("flink.web.port", 8081));  // Web UI 端口
-        flinkConfig.setString("rest.address", config.getString("flink.web.address", "0.0.0.0"));  // 监听地址
-        flinkConfig.setString("rest.bind-port", "8081-8090");  // 端口范围（字符串类型）
-        flinkConfig.setBoolean("rest.flamegraph.enabled",true);
-        
-        // 配置 Prometheus Metrics（推送到 Pushgateway）
-        // 注意：从配置文件读取 Pushgateway 地址，支持本地和 Docker 环境
-        String pushgatewayHost = config.getString("application.metrics.pushgateway.host", "localhost");
-        int pushgatewayPort = config.getInt("application.metrics.pushgateway.port", 9091);
-        
-        MetricsConfig.configurePushgatewayReporter(
-            flinkConfig,
-            pushgatewayHost,  // 从配置文件读取
-            pushgatewayPort,  // 从配置文件读取
-            "flink-ods-job"  // 作业名称
-        );
-        
-        // 配置通用 Metrics 选项
-        MetricsConfig.configureCommonMetrics(flinkConfig);
-        
-        // 创建 Flink 执行环境
-        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment(flinkConfig);
-        // 设置并行度
-        int parallelism = config.getInt("flink.execution.parallelism", 4);
-        env.setParallelism(parallelism);
-        
-        // 启用 Checkpoint
-        long checkpointInterval = config.getLong("flink.checkpoint.interval", 30000);
-        env.enableCheckpointing(checkpointInterval);
-        
-        log.info("Flink Environment:");
-        log.info("  Parallelism: " + parallelism);
-        log.info("  Checkpoint Interval: " + checkpointInterval + " ms");
-        
+        // 使用工厂类创建 Flink Stream Environment (减少重复代码)
+        // 注意: 使用端口 8083 避免与其他作业冲突
+        FlinkEnvironmentFactory envFactory = new FlinkEnvironmentFactory(config);
+        StreamExecutionEnvironment env = envFactory.createStreamEnvironment("flink-ods-datastream-job", 8083);
         
         // 配置 Kafka Source
         KafkaSource<String> kafkaSource = createKafkaSource(config);
@@ -130,16 +94,15 @@ public class FlinkODSJobDataStream {
         // 创建数据流
         DataStream<String> rawStream = env.fromSource(
             kafkaSource,
-                WatermarkStrategyFactory.forBoundedOutOfOrdernessString(5),
+            WatermarkStrategyFactory.forBoundedOutOfOrdernessString(5),
             "Kafka Source"
         );
         
-        log.info("Kafka Source created:");
-        log.info("  Bootstrap Servers: " + config.getString("kafka.bootstrap-servers"));
-        log.info("  Topic: " + config.getString("kafka.topic.crypto-ticker"));
-        log.info("  Group ID: " + config.getString("kafka.consumer.group-id"));
-        log.info("  Startup Mode: " + config.getString("kafka.consumer.startup-mode", "earliest"));
-        
+        logger.info("Kafka Source created:");
+        logger.info("  Bootstrap Servers: " + config.getString("kafka.bootstrap-servers"));
+        logger.info("  Topic: " + config.getString("kafka.topic.crypto-ticker"));
+        logger.info("  Group ID: " + config.getString("kafka.consumer.group-id"));
+        logger.info("  Startup Mode: " + config.getString("kafka.consumer.startup-mode", "earliest"));
         
         // 数据转换：JSON -> Doris 格式
         DataStream<String> odsStream = rawStream
@@ -152,19 +115,17 @@ public class FlinkODSJobDataStream {
         // 写入 Doris
         odsStream.sinkTo(dorisSink).name("Doris ODS Sink");
         
-        log.info("Doris Sink created (官方 Connector):");
-        log.info("  FE Nodes: " + config.getString("doris.fe.http-url"));
-        log.info("  Database: " + config.getString("doris.database"));
-        log.info("  Table: " + config.getString("doris.tables.ods"));
+        logger.info("Doris Sink created (官方 Connector):");
+        logger.info("  FE Nodes: " + config.getString("doris.fe.http-url"));
+        logger.info("  Database: " + config.getString("doris.database"));
+        logger.info("  Table: " + config.getString("doris.tables.ods"));
         
-        
-        log.info("==========================================");
-        log.info("Starting Flink Job...");
-        log.info("==========================================");
-        
+        logger.info("==========================================");
+        logger.info("Starting Flink Job...");
+        logger.info("==========================================");
         
         // 执行作业
-        env.execute("Flink ODS Job - 官方 Doris Connector");
+        env.execute("Flink ODS Job - DataStream API");
     }
     
     /**
@@ -176,7 +137,7 @@ public class FlinkODSJobDataStream {
      * - committed: 从上次提交的 offset 开始消费
      */
     private static KafkaSource<String> createKafkaSource(ConfigLoader config) {
-        // 读取消费模式配置，默认使用 earliest（从头开始消费）
+        // 读取消费模式配置，默认使用 latest（从最新数据开始）
         String startupMode = config.getString("kafka.consumer.startup-mode", "latest");
         
         // 根据配置选择消费模式
@@ -184,23 +145,23 @@ public class FlinkODSJobDataStream {
         switch (startupMode.toLowerCase()) {
             case "latest":
                 offsetsInitializer = OffsetsInitializer.latest();
-                log.info("  Startup Mode: latest（从最新数据开始）");
+                logger.info("  Startup Mode: latest（从最新数据开始）");
                 break;
             case "committed":
                 offsetsInitializer = OffsetsInitializer.committedOffsets();
-                log.info("  Startup Mode: committed（从上次提交的 offset 开始）");
+                logger.info("  Startup Mode: committed（从上次提交的 offset 开始）");
                 break;
             case "earliest":
             default:
                 offsetsInitializer = OffsetsInitializer.earliest();
-                log.info("  Startup Mode: earliest（从最早数据开始）");
+                logger.info("  Startup Mode: earliest（从最早数据开始）");
                 break;
         }
         
         return KafkaSource.<String>builder()
             .setBootstrapServers(config.getString("kafka.bootstrap-servers"))
             .setTopics(config.getString("kafka.topic.crypto-ticker"))
-            .setGroupId(config.getString("kafka.consumer.group-id", "flink-ods-consumer"))
+            .setGroupId(config.getString("kafka.consumer.group-id", "flink-ods-datastream-consumer"))
             .setStartingOffsets(offsetsInitializer)  // 使用配置的消费模式
             .setValueOnlyDeserializer(new SimpleStringSchema())
             .build();

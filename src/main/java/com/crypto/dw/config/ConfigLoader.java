@@ -3,6 +3,7 @@ package com.crypto.dw.config;
 import lombok.extern.slf4j.Slf4j;
 import org.yaml.snakeyaml.Yaml;
 import java.io.InputStream;
+import java.io.Serializable;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -19,7 +20,7 @@ import java.util.regex.Pattern;
  * @Date: 2026/3/21
  */
 @Slf4j
-public class ConfigLoader {
+public class ConfigLoader implements Serializable {
     
     private static final Pattern ENV_VAR_PATTERN = Pattern.compile("\\$\\{([^}]+)\\}");
     private static ConfigLoader instance;

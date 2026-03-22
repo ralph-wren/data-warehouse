@@ -1,0 +1,42 @@
+# Metabase Docker Compose 配置
+# 现代化的开源 BI 工具,界面美观,易于使用
+
+version: '3.8'
+
+services:
+  metabase:
+    image: metabase/metabase:latest
+    container_name: metabase
+    hostname: metabase
+    ports:
+      - "3001:3000"  # 使用 3001 端口,避免与 Grafana 冲突
+    environment:
+      # 数据库配置 - 使用 H2 内嵌数据库(适合测试和小规模使用)
+      - MB_DB_TYPE=h2
+      - MB_DB_FILE=/metabase-data/metabase.db
+      # 时区配置
+      - TZ=Asia/Shanghai
+      - JAVA_TIMEZONE=Asia/Shanghai
+      # 日志级别
+      - MB_LOG_LEVEL=INFO
+    volumes:
+      # 持久化 Metabase 数据
+      - metabase-data:/metabase-data
+    networks:
+      - doris-net  # 连接到 Doris 网络
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  metabase-data:
+    driver: local
+
+networks:
+  doris-net:
+    external: true
+    name: data-warehouse_doris-net

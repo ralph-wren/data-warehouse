@@ -1,0 +1,22 @@
+# Grafana MySQL 数据源配置 - 连接 Doris
+# 用于查询加密货币实时数据
+apiVersion: 1
+
+datasources:
+  # Doris 数据源 (通过 MySQL 协议连接)
+  - name: Doris
+    type: mysql
+    access: proxy
+    url: doris-fe:9030
+    database: crypto_dw
+    user: root
+    # 密码为空
+    secureJsonData:
+      password: ''
+    jsonData:
+      maxOpenConns: 10
+      maxIdleConns: 2
+      connMaxLifetime: 14400
+      # 时区设置为中国时区
+      timezone: 'Asia/Shanghai'
+    editable: true

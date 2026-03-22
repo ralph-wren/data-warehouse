@@ -38,6 +38,7 @@ services:
       - GF_INSTALL_PLUGINS=grafana-piechart-panel
     networks:
       - monitoring-net
+      - doris-net  # 添加 Doris 网络,用于连接 Doris 数据库
     depends_on:
       - prometheus
     restart: unless-stopped
@@ -98,6 +99,9 @@ services:
 networks:
   monitoring-net:
     name: data-warehouse_monitoring-net
+    external: true
+  doris-net:
+    name: data-warehouse_doris-net
     external: true
 
 volumes:

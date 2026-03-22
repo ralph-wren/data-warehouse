@@ -41,3 +41,4 @@ Thumbs.db
 # Test
 test/*.log
 test/test-webui.log
+superset

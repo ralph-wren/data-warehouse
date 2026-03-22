@@ -1,0 +1,48 @@
+# Superset PyMySQL 驱动安装 - 简单步骤
+# 请在 PowerShell 中执行以下命令
+
+# 步骤 1: 进入 Superset 容器
+docker exec -it -u root superset bash
+
+# 步骤 2: 在容器内执行以下命令安装 pymysql
+python -m ensurepip --upgrade
+python -m pip install pymysql
+
+# 步骤 3: 验证安装
+python -c "import pymysql; print('✓ pymysql 安装成功, 版本:', pymysql.__version__)"
+
+# 步骤 4: 测试连接 Doris
+python << 'EOF'
+import pymysql
+try:
+    conn = pymysql.connect(
+        host='doris-fe',
+        port=9030,
+        user='root',
+        password='',
+        database='crypto_dw',
+        connect_timeout=5
+    )
+    print('✓ 连接 Doris 成功')
+    cursor = conn.cursor()
+    cursor.execute('SELECT DATABASE()')
+    result = cursor.fetchone()
+    print('✓ 当前数据库:', result[0])
+    cursor.execute('SHOW TABLES')
+    tables = cursor.fetchall()
+    print('✓ 表数量:', len(tables))
+    conn.close()
+except Exception as e:
+    print('✗ 连接失败:', e)
+EOF
+
+# 步骤 5: 退出容器
+exit
+
+# 步骤 6: 重启 Superset 容器
+docker-compose -f docker-compose-superset.yml restart superset
+
+# 步骤 7: 在 Superset Web UI 中添加数据库
+# 访问: http://localhost:8088
+# Settings -> Database Connections -> + Database
+# SQLALCHEMY URI: mysql+pymysql://root@doris-fe:9030/crypto_dw

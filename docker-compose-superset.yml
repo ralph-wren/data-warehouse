@@ -1,0 +1,67 @@
+version: '3.8'
+
+services:
+  # Superset 数据库 (PostgreSQL)
+  superset-db:
+    image: postgres:14
+    container_name: superset-db
+    environment:
+      POSTGRES_DB: superset
+      POSTGRES_USER: superset
+      POSTGRES_PASSWORD: superset
+    volumes:
+      - superset-db-data:/var/lib/postgresql/data
+    networks:
+      - superset-net
+    restart: unless-stopped
+
+  # Superset Redis (缓存)
+  superset-redis:
+    image: redis:7
+    container_name: superset-redis
+    networks:
+      - superset-net
+    restart: unless-stopped
+
+  # Superset 应用
+  superset:
+    image: apache/superset:latest
+    container_name: superset
+    depends_on:
+      - superset-db
+      - superset-redis
+    ports:
+      - "8088:8088"
+    environment:
+      # 指定自定义配置文件
+      - SUPERSET_CONFIG_PATH=/app/superset_config.py
+    volumes:
+      - ./superset:/app/superset_home
+      - ./superset_config.py:/app/superset_config.py:ro
+    networks:
+      - superset-net
+      - doris-net  # 添加 Doris 网络,用于连接 Doris FE
+    restart: unless-stopped
+    command:
+      - /bin/sh
+      - -c
+      - |
+        # 安装系统依赖和 MySQL 驱动
+        apt-get update && apt-get install -y default-libmysqlclient-dev build-essential pkg-config &&
+        python -m ensurepip --upgrade &&
+        python -m pip install -q pymysql mysqlclient &&
+        superset db upgrade &&
+        superset fab create-admin --username admin --firstname Admin --lastname User --email admin@example.com --password admin || true &&
+        superset init &&
+        superset run -h 0.0.0.0 -p 8088 --with-threads --reload
+
+volumes:
+  superset-db-data:
+    driver: local
+
+networks:
+  superset-net:
+    driver: bridge
+  doris-net:
+    external: true
+    name: data-warehouse_doris-net  # 引用 Doris 的网络

@@ -1,0 +1,22 @@
+# 在 PowerShell 中执行以下命令安装 mysqlclient
+
+# 步骤 1: 进入容器
+docker exec -it -u root superset bash
+
+# 步骤 2: 安装系统依赖 (mysqlclient 需要编译)
+apt-get update
+apt-get install -y default-libmysqlclient-dev build-essential pkg-config
+
+# 步骤 3: 安装 mysqlclient
+python -m pip install mysqlclient
+
+# 步骤 4: 验证安装
+python -c "import MySQLdb; print('✓ MySQLdb 安装成功')"
+
+# 步骤 5: 退出容器
+exit
+
+# 步骤 6: 重启 Superset
+docker-compose -f docker-compose-superset.yml restart superset
+
+# 现在可以在 Superset 中查询数据了!

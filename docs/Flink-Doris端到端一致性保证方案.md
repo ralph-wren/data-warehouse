@@ -251,10 +251,12 @@ SELECT * FROM dwd_crypto_ticker_detail
 
 ### 2.5 Doris Source 配置
 
-#### 方法 1: 默认 Thrift 读取方式 (兼容性好)
+#### 默认使用 ArrowFlightSQL 读取方式 (Doris 3.0+) ⭐⭐⭐
+
+**当前项目配置**: Doris 3.0.7 + ArrowFlightSQL (高性能模式)
 
 ```java
-// 创建 Doris Source 表 (默认 Thrift 读取)
+// 创建 Doris Source 表 (默认 ArrowFlightSQL 读取)
 String ddl = "CREATE TABLE doris_source (\n" +
              "    inst_id STRING,\n" +
              "    timestamp BIGINT,\n" +
@@ -265,25 +267,7 @@ String ddl = "CREATE TABLE doris_source (\n" +
              "    'table.identifier' = 'crypto_dw.dwd_crypto_ticker_detail',\n" +
              "    'username' = 'root',\n" +
              "    'password' = '',\n" +
-             "    'doris.read.field' = '*'  -- 指定读取字段\n" +
-             ")";
-```
-
-#### 方法 2: ArrowFlightSQL 读取方式 (性能更好,推荐 Doris 2.1+)
-
-```java
-// 创建 Doris Source 表 (ArrowFlightSQL 读取)
-String ddl = "CREATE TABLE doris_source (\n" +
-             "    inst_id STRING,\n" +
-             "    timestamp BIGINT,\n" +
-             "    ...\n" +
-             ") WITH (\n" +
-             "    'connector' = 'doris',\n" +
-             "    'fenodes' = '127.0.0.1:8030',\n" +
-             "    'table.identifier' = 'crypto_dw.dwd_crypto_ticker_detail',\n" +
-             "    'username' = 'root',\n" +
-             "    'password' = '',\n" +
-             "    -- ArrowFlightSQL 配置 (性能提升 2-10 倍)\n" +
+             "    -- ⭐ ArrowFlightSQL 配置 (性能提升 2-10 倍)\n" +
              "    'doris.deserialize.arrow.async' = 'true',\n" +
              "    'doris.deserialize.queue.size' = '64',\n" +
              "    'doris.request.query.timeout.s' = '3600',\n" +
@@ -292,14 +276,17 @@ String ddl = "CREATE TABLE doris_source (\n" +
 ```
 
 **ArrowFlightSQL 优势**:
-- 性能提升 2-10 倍 (相比 Thrift)
-- 内存占用更少
-- 支持更大的数据量
-- 异步反序列化,提高吞吐量
+- ✅ 性能提升 2-10 倍 (相比 Thrift)
+- ✅ 内存占用更少
+- ✅ 支持更大的数据量
+- ✅ 异步反序列化,提高吞吐量
+- ✅ Doris 3.0+ 默认推荐方式
 
-**要求**:
-- Doris 2.1+ 版本
-- 需要配置 Arrow Flight SQL 端口 (默认 9040)
+**关键配置参数**:
+- `doris.deserialize.arrow.async = true`: 启用异步反序列化
+- `doris.deserialize.queue.size = 64`: 反序列化队列大小
+- `doris.request.query.timeout.s = 3600`: 查询超时时间(1小时)
+- `doris.read.field = *`: 指定读取字段(可以只读取需要的字段)
 
 **注意事项**:
 - Doris Source 不支持 Checkpoint (因为是有界流)
@@ -429,15 +416,17 @@ WHERE job_name = 'flink-dwd-job';
 
 ### 2.7 Doris Source 读取方式对比
 
-| 读取方式 | 性能 | 兼容性 | 适用场景 | Doris 版本要求 |
-|---------|------|--------|---------|---------------|
-| Thrift | 中等 | 最好 | 小数据量,兼容性优先 | 所有版本 |
-| ArrowFlightSQL | 高 (2-10倍) | 好 | 大数据量,性能优先 | 2.1+ |
+| 读取方式 | 性能 | 兼容性 | 适用场景 | Doris 版本要求 | 当前项目 |
+|---------|------|--------|---------|---------------|---------|
+| Thrift | 中等 | 最好 | 小数据量,兼容性优先 | 所有版本 | ❌ 未使用 |
+| ArrowFlightSQL | 高 (2-10倍) | 好 | 大数据量,性能优先 | 2.1+ | ✅ 默认使用 |
+
+**当前项目配置**: ✅ Doris 3.0.7 + ArrowFlightSQL (高性能模式)
 
 **推荐配置**:
-- 生产环境: ArrowFlightSQL (Doris 2.1+)
-- 开发环境: Thrift (兼容性好)
-- 大数据量: ArrowFlightSQL + 分区读取
+- ✅ 生产环境: ArrowFlightSQL (Doris 2.1+) - 当前使用
+- ⚠️ 开发环境: Thrift (兼容性好) - 备选方案
+- ✅ 大数据量: ArrowFlightSQL + 分区读取 - 当前使用
 
 ### 2.8 增量读取方案对比
 

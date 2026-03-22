@@ -99,11 +99,13 @@ public class FlinkTableFactory {
     }
     
     /**
-     * 创建 Doris Source 表 DDL
+     * 创建 Doris Source 表 DDL (使用 ArrowFlightSQL 高性能读取)
      * 
-     * 读取方式说明:
-     * - Doris 2.1+ 推荐使用 ArrowFlightSQL 读取方式(性能更好)
-     * - 默认使用 Thrift 读取方式(兼容性更好)
+     * ArrowFlightSQL 读取方式说明:
+     * - Doris 2.1+ 支持,3.0+ 推荐使用
+     * - 性能提升 2-10 倍 (相比 Thrift)
+     * - 内存占用更少,支持更大数据量
+     * - 异步反序列化,提高吞吐量
      * - 不支持 CDC 增量读取,只能读取快照数据
      * 
      * @param tableName Flink 表名
@@ -118,65 +120,15 @@ public class FlinkTableFactory {
         String username = config.getString("doris.fe.username");
         String password = config.getString("doris.fe.password", "");
         
-        // 读取方式: arrow-flight-sql(推荐) 或 thrift(默认)
-        String readFields = config.getString("doris.source.read-fields", "*");
-        
-        logger.info("创建 Doris Source 表: {}", tableName);
-        logger.info("  FE Nodes: {}", feNodes);
-        logger.info("  Database: {}", database);
-        logger.info("  Table: {}", dorisTable);
-        logger.info("  Read Fields: {}", readFields);
-        
-        StringBuilder ddl = new StringBuilder();
-        ddl.append("CREATE TABLE ").append(tableName).append(" (\n");
-        ddl.append(schema);
-        ddl.append("\n) WITH (\n");
-        ddl.append("    'connector' = 'doris',\n");
-        ddl.append("    'fenodes' = '").append(feNodes).append("',\n");
-        ddl.append("    'table.identifier' = '").append(database).append(".").append(dorisTable).append("',\n");
-        ddl.append("    'username' = '").append(username).append("',\n");
-        ddl.append("    'password' = '").append(password).append("',\n");
-        // 指定读取字段(可以减少数据传输量)
-        ddl.append("    'doris.read.field' = '").append(readFields).append("'\n");
-        ddl.append(")");
-        
-        return ddl.toString();
-    }
-    
-    /**
-     * 创建 Doris Source 表 DDL (使用 ArrowFlightSQL 读取方式)
-     * 
-     * ArrowFlightSQL 优势:
-     * - 性能更好(比 Thrift 快 2-10 倍)
-     * - 内存占用更少
-     * - 支持更大的数据量
-     * 
-     * 要求:
-     * - Doris 2.1+ 版本
-     * - 需要配置 Arrow Flight SQL 端口(默认 9040)
-     * 
-     * @param tableName Flink 表名
-     * @param tableType Doris 表类型(ods/dwd/dws-1min)
-     * @param schema 字段定义
-     * @return Doris Source 表 DDL
-     */
-    public String createDorisSourceTableWithArrowFlight(String tableName, String tableType, String schema) {
-        String feNodes = config.getString("doris.fe.http-url").replace("http://", "");
-        String database = config.getString("doris.database");
-        String dorisTable = getDorisTableName(tableType);
-        String username = config.getString("doris.fe.username");
-        String password = config.getString("doris.fe.password", "");
-        
-        // Arrow Flight SQL 端口(默认 9040)
-        String arrowFlightPort = config.getString("doris.fe.arrow-flight-port", "9040");
+        // 读取字段配置
         String readFields = config.getString("doris.source.read-fields", "*");
         
         logger.info("创建 Doris Source 表 (ArrowFlightSQL): {}", tableName);
         logger.info("  FE Nodes: {}", feNodes);
-        logger.info("  Arrow Flight Port: {}", arrowFlightPort);
         logger.info("  Database: {}", database);
         logger.info("  Table: {}", dorisTable);
         logger.info("  Read Fields: {}", readFields);
+        logger.info("  Read Mode: ArrowFlightSQL (高性能模式)");
         
         StringBuilder ddl = new StringBuilder();
         ddl.append("CREATE TABLE ").append(tableName).append(" (\n");
@@ -187,11 +139,11 @@ public class FlinkTableFactory {
         ddl.append("    'table.identifier' = '").append(database).append(".").append(dorisTable).append("',\n");
         ddl.append("    'username' = '").append(username).append("',\n");
         ddl.append("    'password' = '").append(password).append("',\n");
-        // 使用 ArrowFlightSQL 读取方式
-        ddl.append("    'doris.deserialize.arrow.async' = 'true',\n");
-        ddl.append("    'doris.deserialize.queue.size' = '64',\n");
-        ddl.append("    'doris.request.query.timeout.s' = '3600',\n");
-        ddl.append("    'doris.read.field' = '").append(readFields).append("'\n");
+        // ⭐ ArrowFlightSQL 配置 - 高性能读取模式
+        ddl.append("    'doris.deserialize.arrow.async' = 'true',\n");  // 异步反序列化
+        ddl.append("    'doris.deserialize.queue.size' = '64',\n");     // 反序列化队列大小
+        ddl.append("    'doris.request.query.timeout.s' = '3600',\n");  // 查询超时时间(1小时)
+        ddl.append("    'doris.read.field' = '").append(readFields).append("'\n");  // 指定读取字段
         ddl.append(")");
         
         return ddl.toString();

@@ -12,13 +12,13 @@ import org.slf4j.LoggerFactory;
 /**
  * Flink DWS 作业 - 1分钟窗口聚合
  * 
- * 架构修复说明:
- * - 修复前: 直接从 Kafka 读取数据 (错误)
- * - 修复后: 从 Doris DWD 表读取数据 (正确)
+ * 架构说明:
+ * - 正确架构: 直接从 Kafka 读取数据 ✅
+ * - 数据流转: Kafka → DWS 作业 → Doris DWS 表
  * 
- * 数据流转: Kafka → ODS 作业 → ODS 表 → DWD 作业 → DWD 表 → DWS 作业 → DWS 表
+ * 从 Kafka 读取原始数据，进行1分钟窗口聚合，生成 K 线数据写入 DWS 层
  * 
- * 从 DWD 层读取数据，进行1分钟窗口聚合，生成 K 线数据写入 DWS 层
+ * 注意: 所有层级（ODS/DWD/DWS）都应该从 Kafka 读取，实时流式处理
  */
 @Slf4j
 public class FlinkDWSJob1MinSQL {
@@ -28,7 +28,7 @@ public class FlinkDWSJob1MinSQL {
     public static void main(String[] args) throws Exception {
         logger.info("==========================================");
         logger.info("Flink DWS Job - 1 Minute Window (Flink SQL)");
-        logger.info("架构: Doris DWD 表 → DWS 作业 → Doris DWS 表");
+        logger.info("架构: Kafka → DWS 作业 → Doris DWS 表");
         logger.info("==========================================");
         
         
@@ -42,14 +42,15 @@ public class FlinkDWSJob1MinSQL {
         // 使用工厂类创建表(减少重复代码)
         FlinkTableFactory tableFactory = new FlinkTableFactory(config);
         
-        // 创建 Doris DWD Source 表（从 DWD 层读取数据,带 Watermark）
-        logger.info("Creating Doris DWD Source Table...");
-        String dwdSourceDDL = tableFactory.createDorisSourceTable(
-            "doris_dwd_source",
-            "dwd",
-            TableSchemas.DORIS_DWD_SOURCE_SCHEMA_WITH_WATERMARK
+        // 创建 Kafka Source 表（从 Kafka 读取原始数据，带 Watermark）✅
+        logger.info("Creating Kafka Source Table...");
+        String kafkaSourceDDL = tableFactory.createKafkaSourceTable(
+            "kafka_ticker_source",
+            TableSchemas.KAFKA_TICKER_SOURCE_SCHEMA,
+            true,  // 带 Watermark
+            "flink-dws-1min-consumer"  // Consumer Group ID（独立的消费组）
         );
-        tableEnv.executeSql(dwdSourceDDL);
+        tableEnv.executeSql(kafkaSourceDDL);
         
         // 创建 Doris DWS Sink 表
         logger.info("Creating Doris DWS Sink Table...");
@@ -73,45 +74,39 @@ public class FlinkDWSJob1MinSQL {
         tableEnv.executeSql(insertSQL);
     }
     
-    // 注意: 原来的 createDWDSourceDDL 和 createDorisSinkDDL 方法已被工厂类替代
-    // Environment 工厂类位置: com.crypto.dw.flink.factory.FlinkEnvironmentFactory
-    // Table 工厂类位置: com.crypto.dw.flink.factory.FlinkTableFactory
-    // Schema 定义位置: com.crypto.dw.flink.schema.TableSchemas
-    
     /**
      * 创建窗口聚合 INSERT SQL
      * 
-     * 架构修复说明:
-     * - 修复前: 从 kafka_ticker_source 读取 (Kafka,错误)
-     * - 修复后: 从 doris_dwd_source 读取 (Doris DWD 表,正确)
+     * 架构说明:
+     * - 从 kafka_ticker_source 读取（Kafka 原始数据，JSON 格式，驼峰命名）✅
      * 
      * 注意: 
-     * 1. 源表字段名匹配 Doris DWD 表字段名(下划线命名)
-     * 2. 使用 DWD 表中已清洗的数据进行聚合
+     * 1. 源表字段名使用驼峰命名（instId, ts, last 等）
+     * 2. 需要将 JSON 字段转换为 DECIMAL 类型
      * 3. 1分钟滚动窗口聚合,生成 K 线数据
      */
     private static String createInsertSQL() {
         return "INSERT INTO doris_dws_1min_sink\n" +
                "SELECT \n" +
-               "    inst_id,\n" +
+               "    instId as inst_id,\n" +
                "    -- 窗口时间戳（毫秒）\n" +
                "    UNIX_TIMESTAMP(CAST(window_start AS STRING)) * 1000 as window_start,\n" +
                "    UNIX_TIMESTAMP(CAST(window_end AS STRING)) * 1000 as window_end,\n" +
                "    1 as window_size,\n" +
                "    -- K 线数据：开高低收\n" +
-               "    FIRST_VALUE(last_price) as open_price,\n" +
-               "    MAX(last_price) as high_price,\n" +
-               "    MIN(last_price) as low_price,\n" +
-               "    LAST_VALUE(last_price) as close_price,\n" +
+               "    FIRST_VALUE(CAST(last AS DECIMAL(20, 8))) as open_price,\n" +
+               "    MAX(CAST(last AS DECIMAL(20, 8))) as high_price,\n" +
+               "    MIN(CAST(last AS DECIMAL(20, 8))) as low_price,\n" +
+               "    LAST_VALUE(CAST(last AS DECIMAL(20, 8))) as close_price,\n" +
                "    -- 成交量（取最后一个值）\n" +
-               "    LAST_VALUE(volume_24h) as volume,\n" +
+               "    LAST_VALUE(CAST(vol24h AS DECIMAL(30, 8))) as volume,\n" +
                "    -- 平均价\n" +
-               "    AVG(last_price) as avg_price,\n" +
+               "    AVG(CAST(last AS DECIMAL(20, 8))) as avg_price,\n" +
                "    -- 涨跌额和涨跌幅\n" +
-               "    LAST_VALUE(last_price) - FIRST_VALUE(last_price) as price_change,\n" +
+               "    LAST_VALUE(CAST(last AS DECIMAL(20, 8))) - FIRST_VALUE(CAST(last AS DECIMAL(20, 8))) as price_change,\n" +
                "    CASE \n" +
-               "        WHEN FIRST_VALUE(last_price) > 0 \n" +
-               "        THEN (LAST_VALUE(last_price) - FIRST_VALUE(last_price)) / FIRST_VALUE(last_price)\n" +
+               "        WHEN FIRST_VALUE(CAST(last AS DECIMAL(20, 8))) > 0 \n" +
+               "        THEN (LAST_VALUE(CAST(last AS DECIMAL(20, 8))) - FIRST_VALUE(CAST(last AS DECIMAL(20, 8)))) / FIRST_VALUE(CAST(last AS DECIMAL(20, 8)))\n" +
                "        ELSE 0\n" +
                "    END as price_change_rate,\n" +
                "    -- Tick 数量\n" +
@@ -119,9 +114,9 @@ public class FlinkDWSJob1MinSQL {
                "    -- 处理时间\n" +
                "    UNIX_TIMESTAMP() * 1000 as process_time\n" +
                "FROM TABLE(\n" +
-               "    TUMBLE(TABLE doris_dwd_source, DESCRIPTOR(event_time), INTERVAL '1' MINUTE)\n" +
+               "    TUMBLE(TABLE kafka_ticker_source, DESCRIPTOR(event_time), INTERVAL '1' MINUTE)\n" +
                ")\n" +
-               "WHERE last_price > 0\n" +
-               "GROUP BY inst_id, window_start, window_end";
+               "WHERE CAST(last AS DECIMAL(20, 8)) > 0\n" +
+               "GROUP BY instId, window_start, window_end";
     }
 }

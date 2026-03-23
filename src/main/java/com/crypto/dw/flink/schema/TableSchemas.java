@@ -7,7 +7,7 @@ package com.crypto.dw.flink.schema;
  * 
  * 使用示例:
  * <pre>
- * String schema = TableSchemas.KAFKA_TICKER_SCHEMA;
+ * String schema = TableSchemas.KAFKA_TICKER_SOURCE_SCHEMA;
  * String ddl = factory.createKafkaSourceTable("kafka_source", schema, true);
  * </pre>
  */
@@ -15,8 +15,30 @@ public class TableSchemas {
     
     /**
      * Kafka Ticker Source 表 Schema
-     * 用于从 Kafka 读取原始 Ticker 数据
+     * 用于从 Kafka 读取原始 Ticker 数据（JSON 格式，驼峰命名）
+     * 
+     * 注意: Kafka 中的 JSON 数据使用驼峰命名（instId, ts, last 等）
      */
+    public static final String KAFKA_TICKER_SOURCE_SCHEMA =
+            "    instId STRING,\n" +
+            "    ts BIGINT,\n" +
+            "    last STRING,\n" +
+            "    bidPx STRING,\n" +
+            "    askPx STRING,\n" +
+            "    bidSz STRING,\n" +
+            "    askSz STRING,\n" +
+            "    vol24h STRING,\n" +
+            "    high24h STRING,\n" +
+            "    low24h STRING,\n" +
+            "    open24h STRING";
+    
+    /**
+     * Kafka Ticker Source 表 Schema（旧版本，已废弃）
+     * 使用下划线命名，不匹配 Kafka JSON 数据
+     * 
+     * @deprecated 使用 KAFKA_TICKER_SOURCE_SCHEMA 替代
+     */
+    @Deprecated
     public static final String KAFKA_TICKER_SCHEMA =
             "    inst_id STRING,\n" +
             "    `timestamp` BIGINT,\n" +

@@ -1,15 +1,12 @@
 package com.crypto.dw.flink;
 
 import com.crypto.dw.config.ConfigLoader;
+import com.crypto.dw.flink.factory.DorisSinkFactory;
 import com.crypto.dw.flink.factory.FlinkEnvironmentFactory;
 import com.crypto.dw.flink.watermark.WatermarkStrategyFactory;
 import com.crypto.dw.model.TickerData;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.apache.doris.flink.cfg.DorisExecutionOptions;
-import org.apache.doris.flink.cfg.DorisOptions;
-import org.apache.doris.flink.cfg.DorisReadOptions;
 import org.apache.doris.flink.sink.DorisSink;
-import org.apache.doris.flink.sink.writer.serializer.SimpleStringSerializer;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
 import org.apache.flink.connector.kafka.source.KafkaSource;
@@ -18,8 +15,6 @@ import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.util.Properties;
 
 /**
  * Flink ODS 作业 - 使用官方 Doris Connector (DataStream API)
@@ -109,8 +104,9 @@ public class FlinkODSJobDataStream {
             .map(new ODSTransformFunction()).disableChaining()
             .name("ODS Transform");
         
-        // 配置官方 Doris Sink
-        DorisSink<String> dorisSink = createDorisSink(config);
+        // 配置官方 Doris Sink（使用工厂类，避免重复代码）
+        DorisSinkFactory dorisSinkFactory = new DorisSinkFactory(config);
+        DorisSink<String> dorisSink = dorisSinkFactory.createDorisSink("ods");
         
         // 写入 Doris
         odsStream.sinkTo(dorisSink).name("Doris ODS Sink");
@@ -167,74 +163,6 @@ public class FlinkODSJobDataStream {
             .build();
     }
     
-    /**
-     * 创建官方 Doris Sink
-     * 使用 Doris Flink Connector,内部处理了 HTTP 协议兼容性问题
-     * 
-     * 注意: 如果 BE 使用 Docker 内部 IP,需要配置 benodes 参数
-     */
-    private static DorisSink<String> createDorisSink(ConfigLoader config) {
-        // 提取 FE 地址 (去掉 http:// 前缀)
-        String feHttpUrl = config.getString("doris.fe.http-url");
-        String feNodes = feHttpUrl.replace("http://", "").replace("https://", "");
-        
-        // 读取数据库和表名配置
-        String database = config.getString("doris.database", "crypto_dw");
-        String table = config.getString("doris.tables.ods", "ods_crypto_ticker_rt");
-        String tableIdentifier = database + "." + table;
-        
-        logger.info("Doris Sink 配置:");
-        logger.info("  FE Nodes: {}", feNodes);
-        logger.info("  Database: {}", database);
-        logger.info("  Table: {}", table);
-        logger.info("  Table Identifier: {}", tableIdentifier);
-        
-        // Doris 连接配置
-        DorisOptions.Builder dorisBuilder = DorisOptions.builder()
-            .setFenodes(feNodes)  // FE 地址,格式: host:port
-            .setTableIdentifier(tableIdentifier)  // 数据库.表名
-            .setUsername(config.getString("doris.fe.username", "root"))
-            .setPassword(config.getString("doris.fe.password", ""));
-        
-        // 关键修复: 如果 BE 使用 Docker 内部 IP,直接指定 BE 地址
-        // 这样可以绕过 FE 返回的内部 IP
-        String beNodes = config.getString("doris.be.nodes", "");
-        if (!beNodes.isEmpty()) {
-            dorisBuilder.setBenodes(beNodes);
-            logger.info("使用配置的 BE 节点: {}", beNodes);
-        }
-        
-        // Stream Load 执行配置
-        Properties streamLoadProp = new Properties();
-        streamLoadProp.setProperty("format", "json");  // 数据格式
-        streamLoadProp.setProperty("read_json_by_line", "true");  // 按行读取 JSON
-        streamLoadProp.setProperty("strip_outer_array", "false");  // 不剥离外层数组
-        
-        // 批量写入配置
-        int batchSize = config.getInt("doris.stream-load.batch-size", 1000);  // 批量行数
-        int batchIntervalMs = config.getInt("doris.stream-load.batch-interval-ms", 5000);  // 批量间隔（毫秒）
-        
-        DorisExecutionOptions executionOptions = DorisExecutionOptions.builder()
-            .setStreamLoadProp(streamLoadProp)  // Stream Load 属性
-            .setMaxRetries(config.getInt("doris.stream-load.max-retries", 3))  // 最大重试次数
-            // 修复：setBufferSize 是字节数，不是行数，设置为 10MB
-            .setBufferSize(10 * 1024 * 1024)  // 缓冲区大小：10MB
-            .setBufferCount(3)  // 缓冲区数量
-            // 修复：使用 setBufferFlushMaxRows 设置批量行数
-            .setBufferFlushMaxRows(batchSize)  // 批量行数：1000 行
-            // 修复：使用 setBufferFlushIntervalMs 设置批量间隔
-            .setBufferFlushIntervalMs(batchIntervalMs)  // 批量间隔：5000ms
-            .setLabelPrefix("flink-ods-" + System.currentTimeMillis())  // 使用时间戳作为 Label 前缀,避免重复
-            .build();
-        
-        // 构建 DorisSink
-        return DorisSink.<String>builder()
-            .setDorisReadOptions(DorisReadOptions.builder().build())
-            .setDorisExecutionOptions(executionOptions)
-            .setDorisOptions(dorisBuilder.build())
-            .setSerializer(new SimpleStringSerializer())  // JSON 字符串序列化器
-            .build();
-    }
     
     /**
      * ODS 数据转换函数

@@ -58,10 +58,9 @@ public class FlinkTableFactory {
      * @param withWatermark 是否添加 Watermark(用于窗口聚合)
      * @return Kafka Source 表 DDL
      */
-    public String createKafkaSourceTable(String tableName, String schema, boolean withWatermark) {
+    public String createKafkaSourceTable(String tableName, String schema, boolean withWatermark,String groupId) {
         String bootstrapServers = config.getString("kafka.bootstrap-servers");
         String topic = config.getString("kafka.topic.crypto-ticker");
-        String groupId = config.getString("kafka.consumer.group-id", "flink-consumer");
         String startupMode = config.getString("kafka.consumer.startup-mode", "latest-offset");
         
         logger.info("创建 Kafka Source 表: {}", tableName);
@@ -183,8 +182,8 @@ public class FlinkTableFactory {
         ddl.append("    'password' = '").append(password).append("',\n");
         ddl.append("    'sink.label-prefix' = '").append(tableType).append("_").append(System.currentTimeMillis()).append("',\n");
         ddl.append("    'sink.properties.format' = 'json',\n");
-        ddl.append("    'sink.properties.read_json_by_line' = 'true'\n");
-        ddl.append("    'sink.enable-2pc' = 'true'\n");
+        ddl.append("    'sink.properties.read_json_by_line' = 'true',\n");  // 修复：添加逗号
+        ddl.append("    'sink.enable-2pc' = 'true'\n");  // ⭐ 启用两阶段提交（精准一次性必需）
         ddl.append(")");
         
         return ddl.toString();

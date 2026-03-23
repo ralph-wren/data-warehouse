@@ -44,7 +44,8 @@ public class FlinkODSJobSQL {
         String kafkaSourceDDL = tableFactory.createKafkaSourceTable(
             "kafka_source",
             TableSchemas.KAFKA_TICKER_SCHEMA,
-            false  // 不需要 Watermark (ODS 层不做窗口聚合)
+            false,  // 不需要 Watermark (ODS 层不做窗口聚合)
+            "flink-kafka-source-somsumer"
         );
         tableEnv.executeSql(kafkaSourceDDL);
         

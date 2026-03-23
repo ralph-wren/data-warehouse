@@ -246,8 +246,9 @@
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.11.0</version>
                 <configuration>
-                    <source>11</source>
-                    <target>11</target>
+                    <!-- 使用 Java 8，兼容 StreamPark 容器和 Flink 1.17 -->
+                    <source>8</source>
+                    <target>8</target>
                 </configuration>
             </plugin>
 

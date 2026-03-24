@@ -31,7 +31,6 @@ flink-savepoints/
 kafka-logs/
 
 # Environment
-.env
 .env.local
 
 # OS

@@ -255,12 +255,7 @@ public class FlinkTableFactory {
      * 1. 使用 SQL 模板文件，便于维护和修改
      * 2. 支持显式传入库名和表名，提高灵活性
      * 3. 可以写入到任意数据库和表，不受配置文件限制
-     * 4. 根据集群模式自动选择 BE 地址（local/remote）
-     * 
-     * BE 地址自动选择说明：
-     * - local 模式：使用 doris.be.nodes.local (宿主机地址 127.0.0.1:8040)
-     * - remote 模式：使用 doris.be.nodes.remote (容器名称 doris-be:8040)
-     * - 代码会根据 flink.cluster.mode 自动选择正确的地址
+     * 4. BE 地址通过配置文件自动选择（dev=宿主机，docker=容器名称）
      * 
      * 使用场景：
      * - 写入到测试数据库
@@ -300,25 +295,11 @@ public class FlinkTableFactory {
                                        String labelPrefix, String schema) {
         // 读取 Doris 连接配置
         String feNodes = config.getString("doris.fe.http-url").replace("http://", "");
+        String beNodes = config.getString("doris.be.nodes", "127.0.0.1:8040");
         String username = config.getString("doris.fe.username");
         String password = config.getString("doris.fe.password", "");
         
-        // 根据集群模式自动选择 BE 地址
-        String clusterMode = config.getString("flink.cluster.mode", "local");
-        String beNodes;
-        
-        if ("remote".equalsIgnoreCase(clusterMode)) {
-            // 远程集群模式：使用容器名称
-            beNodes = config.getString("doris.be.nodes.remote", "doris-be:8040");
-            logger.info("远程集群模式：使用容器名称访问 BE: {}", beNodes);
-        } else {
-            // 本地模式：使用宿主机地址
-            beNodes = config.getString("doris.be.nodes.local", "127.0.0.1:8040");
-            logger.info("本地模式：使用宿主机地址访问 BE: {}", beNodes);
-        }
-        
         logger.info("创建 Doris Sink 表: {}", tableName);
-        logger.info("  集群模式: {}", clusterMode);
         logger.info("  FE Nodes: {}", feNodes);
         logger.info("  BE Nodes: {}", beNodes);
         logger.info("  Database: {}", database);

@@ -27,18 +27,21 @@ fi
 
 echo "✅ JAR 文件存在: $JAR_FILE"
 
-# 3. 修改配置文件为远程模式
+# 3. 配置远程集群模式
 echo "步骤 2: 配置远程集群模式..."
-echo "请确保 application-dev.yml 中配置了:"
-echo "  flink.cluster.mode: remote"
-echo "  flink.cluster.remote.host: localhost"
-echo "  flink.cluster.remote.port: 8081"
+echo "使用 --APP_ENV docker 参数选择远程集群配置"
+echo "  application-docker.yml 配置:"
+echo "  - flink.cluster.mode: remote"
+echo "  - flink.cluster.remote.host: localhost"
+echo "  - flink.cluster.remote.port: 8081"
+echo "  - kafka.bootstrap-servers: kafka:9093"
+echo "  - doris.be.nodes: doris-be:8040"
 
-# 4. 运行作业
+# 4. 运行作业 (使用 docker 配置文件)
 echo "步骤 3: 提交作业到远程集群..."
 java -cp "$JAR_FILE" \
     com.crypto.dw.flink.FlinkODSJobDataStream \
-    --APP_ENV dev
+    --APP_ENV docker
 
 echo "=========================================="
 echo "作业已提交到远程集群"

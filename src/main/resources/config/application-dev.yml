@@ -27,7 +27,7 @@ okx:
 # Kafka 配置
 # 注意：本地开发环境使用 localhost
 kafka:
-  bootstrap-servers: localhost:9093  # 本地 Kafka 地址
+  bootstrap-servers: localhost:9093  # 本地 Kafka 地址 (宿主机访问)
   
   # Topic 配置
   topic:
@@ -72,15 +72,10 @@ doris:
     username: root
     password: ""
   
-  # BE 节点配置 (根据集群模式自动选择)
-  # 说明：
-  # - local 模式：使用 be.nodes.local (宿主机地址)
-  # - remote 模式：使用 be.nodes.remote (Docker 容器名称)
-  # 代码会根据 flink.cluster.mode 自动选择正确的地址
+  # BE 节点配置
+  # 说明：本地模式使用宿主机地址
   be:
-    nodes:
-      local: "127.0.0.1:8040"   # 本地模式 - 宿主机访问
-      remote: "doris-be:8040"   # 远程集群模式 - 容器访问
+    nodes: "127.0.0.1:8040"  # 宿主机地址 (本地模式)
   
   # 数据库配置
   database: crypto_dw

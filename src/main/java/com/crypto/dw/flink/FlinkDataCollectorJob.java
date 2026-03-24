@@ -3,11 +3,18 @@ package com.crypto.dw.flink;
 import com.crypto.dw.config.ConfigLoader;
 import com.crypto.dw.flink.factory.FlinkEnvironmentFactory;
 import com.crypto.dw.flink.source.OKXWebSocketSourceFunction;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
 import org.apache.flink.connector.base.DeliveryGuarantee;
 import org.apache.flink.connector.kafka.sink.KafkaRecordSerializationSchema;
 import org.apache.flink.connector.kafka.sink.KafkaSink;
+import org.apache.flink.streaming.api.datastream.DataStream;
+import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.streaming.api.functions.ProcessFunction;
+import org.apache.flink.util.Collector;
+import org.apache.flink.util.OutputTag;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -22,9 +29,20 @@ import java.util.List;
  * 
  * 功能:
  * - 使用 Flink Source Function 封装 WebSocket 客户端
+ * - 同时订阅现货（SPOT）和合约（SWAP）
+ * - 根据数据类型写入不同的 Kafka Topic
  * - 自动重连和错误处理
  * - 支持 Flink 的 Checkpoint 机制
  * - 统一的监控和管理
+ * 
+ * 数据流:
+ * <pre>
+ * OKX WebSocket
+ *     │
+ *     ├─→ 现货数据 → Kafka Topic: crypto-ticker-spot
+ *     │
+ *     └─→ 合约数据 → Kafka Topic: crypto-ticker-swap
+ * </pre>
  * 
  * 优势:
  * - 利用 Flink 的容错机制
@@ -83,33 +101,124 @@ public class FlinkDataCollectorJob {
         List<String> symbols = getSymbols(args, config);
         logger.info("Subscribing to symbols: {}", symbols);
         
-        // 创建 Kafka Sink (使用 Flink Kafka Connector)
-        // 注意: 使用 AT_LEAST_ONCE 保证数据不丢失
-        String kafkaTopic = config.getString("kafka.topic.crypto-ticker", "crypto-ticker");
+        // 获取 Kafka 配置
         String kafkaBootstrapServers = config.getString("kafka.bootstrap-servers");
+        String spotTopic = config.getString("kafka.topic.crypto-ticker-spot", "crypto-ticker-spot");
+        String swapTopic = config.getString("kafka.topic.crypto-ticker-swap", "crypto-ticker-swap");
         
-        logger.info("Creating Kafka Sink...");
-        logger.info("  Topic: {}", kafkaTopic);
+        logger.info("Kafka Configuration:");
         logger.info("  Bootstrap Servers: {}", kafkaBootstrapServers);
+        logger.info("  Spot Topic: {}", spotTopic);
+        logger.info("  Swap Topic: {}", swapTopic);
         
-        KafkaSink<String> kafkaSink = KafkaSink.<String>builder()
+        // 创建数据流: OKX WebSocket Source
+        DataStream<String> sourceStream = env.addSource(
+            new OKXWebSocketSourceFunction(config, symbols)
+        ).name("OKX WebSocket Source");
+        
+        // 使用 Side Output 分流：现货和合约
+        // 定义 Side Output Tag
+        final OutputTag<String> swapOutputTag = new OutputTag<String>("swap-output"){};
+        
+        // 处理数据流，根据 instId 判断是现货还是合约
+        SingleOutputStreamOperator<String> spotStream = sourceStream
+            .process(new ProcessFunction<String, String>() {
+                
+                private static final long serialVersionUID = 1L;
+                private transient ObjectMapper objectMapper;
+                
+                @Override
+                public void open(org.apache.flink.configuration.Configuration parameters) {
+                    objectMapper = new ObjectMapper();
+                }
+                
+                @Override
+                public void processElement(
+                        String value,
+                        Context ctx,
+                        Collector<String> out) throws Exception {
+                    
+                    try {
+                        // 解析 JSON
+                        JsonNode rootNode = objectMapper.readTree(value);
+                        
+                        // 检查是否是订阅确认消息或错误消息
+                        if (rootNode.has("event")) {
+                            String event = rootNode.get("event").asText();
+                            if ("subscribe".equals(event)) {
+                                logger.info("Subscription confirmed: {}", value);
+                                return;
+                            } else if ("error".equals(event)) {
+                                logger.error("Subscription error: {}", value);
+                                return;
+                            }
+                        }
+                        
+                        // 处理 Ticker 数据
+                        if (rootNode.has("data")) {
+                            JsonNode dataArray = rootNode.get("data");
+                            if (dataArray.isArray() && dataArray.size() > 0) {
+                                for (JsonNode dataNode : dataArray) {
+                                    if (dataNode.has("instId")) {
+                                        String instId = dataNode.get("instId").asText();
+                                        String jsonData = objectMapper.writeValueAsString(dataNode);
+                                        
+                                        // 判断是现货还是合约
+                                        if (instId.endsWith("-SWAP")) {
+                                            // 合约数据：发送到 Side Output
+                                            ctx.output(swapOutputTag, jsonData);
+                                            logger.debug("SWAP data: {}", instId);
+                                        } else {
+                                            // 现货数据：发送到主流
+                                            out.collect(jsonData);
+                                            logger.debug("SPOT data: {}", instId);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        
+                    } catch (Exception e) {
+                        logger.error("Error processing message: {}", e.getMessage(), e);
+                    }
+                }
+            })
+            .name("Split SPOT/SWAP");
+        
+        // 获取合约数据流
+        DataStream<String> swapStream = spotStream.getSideOutput(swapOutputTag);
+        
+        // 创建 Kafka Sink（现货）
+        logger.info("Creating Kafka Sink for SPOT...");
+        KafkaSink<String> spotKafkaSink = KafkaSink.<String>builder()
             .setBootstrapServers(kafkaBootstrapServers)
             .setRecordSerializer(
                 KafkaRecordSerializationSchema.builder()
-                    .setTopic(kafkaTopic)
+                    .setTopic(spotTopic)
                     .setValueSerializationSchema(new SimpleStringSchema())
                     .build()
             )
-            .setDeliveryGuarantee(DeliveryGuarantee.AT_LEAST_ONCE)  // 至少一次保证
+            .setDeliveryGuarantee(DeliveryGuarantee.AT_LEAST_ONCE)
             .build();
         
-        // 创建数据流: OKX WebSocket Source → Kafka Sink
-        // 架构: WebSocket → Flink Source → Flink Stream → Kafka Sink
-        env.addSource(
-            new OKXWebSocketSourceFunction(config, symbols)
-        ).name("OKX WebSocket Source")
-         .sinkTo(kafkaSink)  // 使用 Kafka Sink 写入数据
-         .name("Kafka Sink");
+        // 创建 Kafka Sink（合约）
+        logger.info("Creating Kafka Sink for SWAP...");
+        KafkaSink<String> swapKafkaSink = KafkaSink.<String>builder()
+            .setBootstrapServers(kafkaBootstrapServers)
+            .setRecordSerializer(
+                KafkaRecordSerializationSchema.builder()
+                    .setTopic(swapTopic)
+                    .setValueSerializationSchema(new SimpleStringSchema())
+                    .build()
+            )
+            .setDeliveryGuarantee(DeliveryGuarantee.AT_LEAST_ONCE)
+            .build();
+        
+        // 现货数据写入 Kafka
+        spotStream.sinkTo(spotKafkaSink).name("Kafka Sink (SPOT)");
+        
+        // 合约数据写入 Kafka
+        swapStream.sinkTo(swapKafkaSink).name("Kafka Sink (SWAP)");
         
         logger.info("==========================================");
         logger.info("Starting Flink Data Collector Job...");

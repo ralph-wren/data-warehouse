@@ -19,6 +19,14 @@ import java.util.concurrent.atomic.AtomicLong;
 /**
  * OKX WebSocket 客户端
  * 订阅实时行情数据并发送到 Kafka
+ * 
+ * 支持同时订阅现货（SPOT）和合约（SWAP）：
+ * - 现货：BTC-USDT（SPOT）
+ * - 合约：BTC-USDT-SWAP（永续合约）
+ * 
+ * 数据发送到不同的 Kafka Topic：
+ * - 现货：crypto-ticker-spot
+ * - 合约：crypto-ticker-swap
  */
 @Slf4j
 public class OKXWebSocketClient extends WebSocketClient {
@@ -34,10 +42,18 @@ public class OKXWebSocketClient extends WebSocketClient {
     private final AtomicLong messageCount = new AtomicLong(0);
     private final AtomicLong errorCount = new AtomicLong(0);
     
+    // 统计信息：现货和合约分别计数
+    private final AtomicLong spotMessageCount = new AtomicLong(0);
+    private final AtomicLong swapMessageCount = new AtomicLong(0);
+    
     private int reconnectAttempts = 0;
     private final int maxReconnectAttempts;
     private final long initialReconnectDelay;
     private final long maxReconnectDelay;
+    
+    // Kafka Topic 配置
+    private final String spotTopic;
+    private final String swapTopic;
     
     public OKXWebSocketClient(ConfigLoader config, KafkaProducerManager kafkaProducer, List<String> symbols) {
         super(URI.create(config.getString("okx.websocket.url")));
@@ -49,7 +65,12 @@ public class OKXWebSocketClient extends WebSocketClient {
         this.initialReconnectDelay = config.getLong("okx.websocket.reconnect.initial-delay", 1000);
         this.maxReconnectDelay = config.getLong("okx.websocket.reconnect.max-delay", 60000);
         
+        // 读取 Kafka Topic 配置
+        this.spotTopic = config.getString("kafka.topic.crypto-ticker-spot", "crypto-ticker-spot");
+        this.swapTopic = config.getString("kafka.topic.crypto-ticker-swap", "crypto-ticker-swap");
+        
         logger.info("OKX WebSocket Client created. URL: {}", getURI());
+        logger.info("Spot Topic: {}, Swap Topic: {}", spotTopic, swapTopic);
     }
     
     @Override
@@ -124,27 +145,45 @@ public class OKXWebSocketClient extends WebSocketClient {
     
     /**
      * 订阅 Ticker 频道
+     * 
+     * 同时订阅现货和合约：
+     * - 现货：BTC-USDT（SPOT）
+     * - 合约：BTC-USDT-SWAP（永续合约）
+     * 
+     * OKX WebSocket 订阅格式：
+     * {"op": "subscribe", "args": [
+     *   {"channel": "tickers", "instId": "BTC-USDT"},
+     *   {"channel": "tickers", "instId": "BTC-USDT-SWAP"}
+     * ]}
      */
     private void subscribe() {
         try {
-            // 构建订阅消息
-            // OKX WebSocket 订阅格式：
-            // {"op": "subscribe", "args": [{"channel": "tickers", "instId": "BTC-USDT"}]}
-            
             StringBuilder sb = new StringBuilder();
             sb.append("{\"op\":\"subscribe\",\"args\":[");
             
-            for (int i = 0; i < symbols.size(); i++) {
-                if (i > 0) {
+            int argCount = 0;
+            
+            // 订阅现货和合约
+            for (String symbol : symbols) {
+                // 现货：BTC-USDT
+                if (argCount > 0) {
                     sb.append(",");
                 }
-                sb.append("{\"channel\":\"tickers\",\"instId\":\"").append(symbols.get(i)).append("\"}");
+                sb.append("{\"channel\":\"tickers\",\"instId\":\"").append(symbol).append("\"}");
+                argCount++;
+                
+                // 合约：BTC-USDT-SWAP
+                sb.append(",");
+                sb.append("{\"channel\":\"tickers\",\"instId\":\"").append(symbol).append("-SWAP\"}");
+                argCount++;
             }
             
             sb.append("]}");
             
             String subscribeMessage = sb.toString();
-            logger.info("Subscribing to tickers: {}", subscribeMessage);
+            logger.info("Subscribing to tickers (SPOT + SWAP): {}", subscribeMessage);
+            logger.info("Total subscriptions: {} (SPOT: {}, SWAP: {})", 
+                argCount, symbols.size(), symbols.size());
             
             send(subscribeMessage);
             
@@ -155,6 +194,10 @@ public class OKXWebSocketClient extends WebSocketClient {
     
     /**
      * 处理 Ticker 数据
+     * 
+     * 根据 instId 判断是现货还是合约：
+     * - 现货：BTC-USDT → 发送到 crypto-ticker-spot
+     * - 合约：BTC-USDT-SWAP → 发送到 crypto-ticker-swap
      */
     private void processTickerData(JsonNode dataNode) {
         try {
@@ -164,29 +207,43 @@ public class OKXWebSocketClient extends WebSocketClient {
             String instId = tickerData.getInstId();
             String jsonData = objectMapper.writeValueAsString(tickerData);
             
-            log.info("Processing ticker: " + instId + ", Price: " + tickerData.getLast());
+            // 判断是现货还是合约
+            boolean isSwap = instId.endsWith("-SWAP");
+            String topic = isSwap ? swapTopic : spotTopic;
+            String type = isSwap ? "SWAP" : "SPOT";
             
-            // 发送到 Kafka
-            kafkaProducer.send(instId, jsonData)
+            // 更新统计信息
+            if (isSwap) {
+                swapMessageCount.incrementAndGet();
+            } else {
+                spotMessageCount.incrementAndGet();
+            }
+            
+            log.info("Processing ticker [{}]: {}, Price: {}", type, instId, tickerData.getLast());
+            
+            // 发送到 Kafka（指定 Topic）
+            kafkaProducer.send(topic, instId, jsonData)
                 .thenAccept(metadata -> {
-                    log.info("✓ Sent to Kafka: " + instId + ", Partition: " + metadata.partition() + ", Offset: " + metadata.offset());
+                    log.info("✓ Sent to Kafka [{}]: {} → Topic: {}, Partition: {}, Offset: {}", 
+                        type, instId, topic, metadata.partition(), metadata.offset());
                     if (logger.isDebugEnabled()) {
-                        logger.debug("Ticker data sent to Kafka. InstId: {}, Price: {}, Partition: {}, Offset: {}", 
-                            instId, tickerData.getLast(), metadata.partition(), metadata.offset());
+                        logger.debug("Ticker data sent to Kafka. Type: {}, InstId: {}, Price: {}, Topic: {}, Partition: {}, Offset: {}", 
+                            type, instId, tickerData.getLast(), topic, metadata.partition(), metadata.offset());
                     }
                 })
                 .exceptionally(ex -> {
-                    log.error("❌ Failed to send to Kafka: " + instId + ", Error: " + ex.getMessage());
-                    logger.error("Failed to send ticker data to Kafka. InstId: {}, Error: {}", 
-                        instId, ex.getMessage());
+                    log.error("❌ Failed to send to Kafka [{}]: {}, Error: {}", type, instId, ex.getMessage());
+                    logger.error("Failed to send ticker data to Kafka. Type: {}, InstId: {}, Error: {}", 
+                        type, instId, ex.getMessage());
                     return null;
                 });
             
             // 定期打印统计信息
             long count = messageCount.get();
             if (count % 100 == 0) {
-                logger.info("Statistics - Messages: {}, Errors: {}, Kafka Success: {}, Kafka Failure: {}", 
-                    count, errorCount.get(), kafkaProducer.getSuccessCount(), kafkaProducer.getFailureCount());
+                logger.info("Statistics - Total: {}, SPOT: {}, SWAP: {}, Errors: {}, Kafka Success: {}, Kafka Failure: {}", 
+                    count, spotMessageCount.get(), swapMessageCount.get(), 
+                    errorCount.get(), kafkaProducer.getSuccessCount(), kafkaProducer.getFailureCount());
             }
             
         } catch (Exception e) {

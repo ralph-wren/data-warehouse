@@ -19,10 +19,14 @@ import java.util.concurrent.atomic.AtomicLong;
  * 
  * 功能:
  * - 连接 OKX WebSocket 公共频道
- * - 订阅指定交易对的 Ticker 数据
- * - 将数据发送到 Flink 数据流
+ * - 同时订阅现货（SPOT）和合约（SWAP）的 Ticker 数据
+ * - 将数据发送到 Flink 数据流（带类型标记）
  * - 支持 Flink 的 Checkpoint 机制
  * - 自动重连和错误处理
+ * 
+ * 数据格式:
+ * - 现货：{"type":"SPOT","data":{...}}
+ * - 合约：{"type":"SWAP","data":{...}}
  * 
  * 使用示例:
  * <pre>
@@ -255,15 +259,29 @@ public class OKXWebSocketSourceFunction extends RichSourceFunction<String> {
         public void onOpen(ServerHandshake handshakedata) {
             logger.info("WebSocket connection opened");
             
-            // 订阅 Ticker 频道
+            // 同时订阅现货和合约 Ticker 频道
+            // 现货：BTC-USDT
+            // 合约：BTC-USDT-SWAP
             for (String symbol : symbols) {
-                String subscribeMsg = String.format(
+                // 订阅现货
+                String spotSubscribeMsg = String.format(
                     "{\"op\":\"subscribe\",\"args\":[{\"channel\":\"tickers\",\"instId\":\"%s\"}]}",
                     symbol
                 );
-                send(subscribeMsg);
-                logger.info("Subscribed to ticker: {}", symbol);
+                send(spotSubscribeMsg);
+                logger.info("Subscribed to SPOT ticker: {}", symbol);
+                
+                // 订阅合约
+                String swapSubscribeMsg = String.format(
+                    "{\"op\":\"subscribe\",\"args\":[{\"channel\":\"tickers\",\"instId\":\"%s-SWAP\"}]}",
+                    symbol
+                );
+                send(swapSubscribeMsg);
+                logger.info("Subscribed to SWAP ticker: {}-SWAP", symbol);
             }
+            
+            logger.info("Total subscriptions: {} (SPOT: {}, SWAP: {})", 
+                symbols.size() * 2, symbols.size(), symbols.size());
         }
         
         @Override

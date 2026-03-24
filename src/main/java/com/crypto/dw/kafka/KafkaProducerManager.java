@@ -66,13 +66,25 @@ public class KafkaProducerManager {
     }
     
     /**
-     * 发送消息到 Kafka
+     * 发送消息到 Kafka（使用默认 Topic）
      * 
      * @param key 消息键（用于分区）
      * @param value 消息内容（JSON 格式）
      * @return CompletableFuture<RecordMetadata>
      */
     public CompletableFuture<RecordMetadata> send(String key, String value) {
+        return send(topic, key, value);
+    }
+    
+    /**
+     * 发送消息到 Kafka（指定 Topic）
+     * 
+     * @param topic 目标 Topic
+     * @param key 消息键（用于分区）
+     * @param value 消息内容（JSON 格式）
+     * @return CompletableFuture<RecordMetadata>
+     */
+    public CompletableFuture<RecordMetadata> send(String topic, String key, String value) {
         CompletableFuture<RecordMetadata> future = new CompletableFuture<>();
         
         ProducerRecord<String, String> record = new ProducerRecord<>(topic, key, value);
@@ -83,13 +95,14 @@ public class KafkaProducerManager {
                 future.complete(metadata);
                 
                 if (logger.isDebugEnabled()) {
-                    logger.debug("Message sent successfully. Key: {}, Partition: {}, Offset: {}", 
-                        key, metadata.partition(), metadata.offset());
+                    logger.debug("Message sent successfully. Topic: {}, Key: {}, Partition: {}, Offset: {}", 
+                        topic, key, metadata.partition(), metadata.offset());
                 }
             } else {
                 failureCount.incrementAndGet();
                 future.completeExceptionally(exception);
-                logger.error("Failed to send message. Key: {}, Error: {}", key, exception.getMessage());
+                logger.error("Failed to send message. Topic: {}, Key: {}, Error: {}", 
+                    topic, key, exception.getMessage());
             }
         });
         

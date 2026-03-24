@@ -71,6 +71,14 @@
             <version>${flink.version}</version>
         </dependency>
 
+        <!-- Flink RocksDB State Backend - 生产环境推荐的状态后端 -->
+        <!-- 支持增量 checkpoint、大状态存储、本地恢复等特性 -->
+        <dependency>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-statebackend-rocksdb</artifactId>
+            <version>${flink.version}</version>
+        </dependency>
+
         <!-- Flink Kafka Connector - 使用与 Flink 1.17 匹配的版本 -->
         <dependency>
             <groupId>org.apache.flink</groupId>

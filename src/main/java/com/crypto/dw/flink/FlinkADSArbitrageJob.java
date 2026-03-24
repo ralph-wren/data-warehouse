@@ -107,7 +107,7 @@ public class FlinkADSArbitrageJob {
         // ========== 步骤 1: 创建现货价格流 ==========
         logger.info("创建现货价格流...");
         KafkaSource<String> spotKafkaSource = kafkaSourceFactory.createKafkaSource(
-            config.getString("kafka.topic.crypto-ticker-spot", "crypto-ticker-spot"),  // 现货 Topic
+            config.getString("kafka.topic.crypto-ticker-spot-spot", "crypto-ticker-spot"),  // 现货 Topic
             "arbitrage-spot-consumer",  // Consumer Group
             "earliest"  // 从最早数据开始（处理历史数据）
         );
@@ -146,7 +146,7 @@ public class FlinkADSArbitrageJob {
         // 说明：从合约 Topic 读取数据
         logger.info("创建合约价格流...");
         KafkaSource<String> swapKafkaSource = kafkaSourceFactory.createKafkaSource(
-            config.getString("kafka.topic.crypto-ticker-swap", "crypto-ticker-swap"),  // 合约 Topic
+            config.getString("kafka.topic.crypto-ticker-spot-swap", "crypto-ticker-swap"),  // 合约 Topic
             "arbitrage-swap-consumer",  // Consumer Group
             "earliest"
         );

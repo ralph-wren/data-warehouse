@@ -20,7 +20,9 @@ okx:
   # 订阅的交易对（逗号分隔）
   # 多个交易对对应多个 Kafka 分区，数据会均匀分布
   # 注意：只订阅 OKX 上存在的交易对，避免订阅错误
-  symbols: BTC-USDT,ETH-USDT,SOL-USDT,BNB-USDT,XRP-USDT,LTC-USDT,BCH-USDT,DOGE-USDT,ADA-USDT
+  symbols:
+    spot: BTC-USDT,ETH-USDT,SOL-USDT,BNB-USDT,XRP-USDT,LTC-USDT,BCH-USDT,DOGE-USDT,ADA-USDT
+    swap: BTC-USDT-SWAP,ETH-USDT-SWAP,SOL-USDT-SWAP,BNB-USDT-SWAP
 
 # Kafka 配置
 # 注意：本地开发环境使用 localhost
@@ -29,7 +31,6 @@ kafka:
   
   # Topic 配置
   topic:
-    crypto-ticker: crypto_ticker  # 旧的 Topic（兼容）
     crypto-ticker-spot: crypto-ticker-spot  # 现货 Topic
     crypto-ticker-swap: crypto-ticker-swap  # 合约 Topic
   
@@ -119,7 +120,7 @@ flink:
   
   # 状态后端配置
   state:
-    backend: rocksdb  # 状态后端类型：推荐 rocksdb / hashmap
+    backend: rocksdb  # 状态后端类型：rocksdb (生产推荐) / hashmap (开发测试)
     checkpoint-dir: file:///tmp/flink-checkpoints  # Checkpoint 存储目录
     savepoint-dir: file:///tmp/flink-savepoints  # Savepoint 存储目录
     incremental: true  # RocksDB 增量 Checkpoint，减少状态快照体积

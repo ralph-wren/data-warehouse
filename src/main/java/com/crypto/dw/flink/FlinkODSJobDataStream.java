@@ -80,7 +80,7 @@ public class FlinkODSJobDataStream {
         // 打印配置信息（调试用）
         logger.info("=== 配置信息 ===");
         logger.info("Kafka Bootstrap Servers: " + config.getString("kafka.bootstrap-servers"));
-        logger.info("Kafka Topic: " + config.getString("kafka.topic.crypto-ticker"));
+        logger.info("Kafka Topic: " + config.getString("kafka.topic.crypto-ticker-swap"));
         logger.info("Doris FE URL: " + config.getString("doris.fe.http-url"));
         logger.info("================");
 
@@ -107,7 +107,7 @@ public class FlinkODSJobDataStream {
         
         logger.info("Kafka Source created:");
         logger.info("  Bootstrap Servers: " + config.getString("kafka.bootstrap-servers"));
-        logger.info("  Topic: " + config.getString("kafka.topic.crypto-ticker"));
+        logger.info("  Topic: " + config.getString("kafka.topic.crypto-ticker-swap"));
         logger.info("  Group ID: " + config.getString("kafka.consumer.group-id"));
         logger.info("  Startup Mode: " + config.getString("kafka.consumer.startup-mode", "earliest"));
         

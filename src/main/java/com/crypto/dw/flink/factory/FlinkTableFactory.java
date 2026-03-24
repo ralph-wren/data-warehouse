@@ -95,7 +95,7 @@ public class FlinkTableFactory {
      */
     public String createKafkaSourceTable(String tableName, String schema, boolean withWatermark, String groupId) {
         String bootstrapServers = config.getString("kafka.bootstrap-servers");
-        String topic = config.getString("kafka.topic.crypto-ticker");
+        String topic = config.getString("kafka.topic.crypto-ticker-spot");
         String startupMode = config.getString("kafka.consumer.startup-mode", "latest-offset");
         
         logger.info("创建 Kafka Source 表: {}", tableName);

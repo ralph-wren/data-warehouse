@@ -85,34 +85,64 @@ doris:
 flink:
   # 执行环境配置
   execution:
+    runtime-mode: STREAMING  # Docker 中运行的也是长跑流式作业
     parallelism: 4  # Docker 环境可以使用更高的并行度
-    max-parallelism: 128
+    max-parallelism: 128  # 状态分片上限，建议提前固定
+    buffer-timeout-ms: 100  # 常用吞吐/延迟折中值
+    auto-watermark-interval-ms: 200  # 事件时间 Watermark 刷新间隔
   
   # Checkpoint 配置
   checkpoint:
-    interval: 60000  # 60 秒
-    mode: EXACTLY_ONCE
+    interval: 60000  # 60 秒，Docker 环境默认 1 分钟做一次快照
+    mode: EXACTLY_ONCE  # 默认优先保证端到端一致性
     timeout: 300000  # 5 分钟
-    min-pause: 500
-    max-concurrent: 1
+    min-pause: 10000  # 给状态后端留足喘息时间，减少连续 checkpoint 压力
+    max-concurrent: 1  # 大多数生产流式作业建议保持 1
+    tolerable-failed-checkpoints: 3  # 容忍短时故障
+    externalized-retention: RETAIN_ON_CANCELLATION  # 容器环境取消后保留恢复点，方便回滚
+    snapshot-compression: true  # 建议开启
+    checkpoints-after-tasks-finish: true  # 对混合作业更友好
+    unaligned:
+      enabled: false  # 默认关闭；如果出现持续反压，再按需开启
+      aligned-timeout-ms: 0  # 关闭超时切换
+      max-subtasks-per-channel-state-file: 5  # 控制 channel state 文件聚合度
   
   # 状态后端配置
   state:
-    backend: rocksdb
+    backend: rocksdb  # 状态后端类型：推荐 rocksdb / hashmap
     # Docker 环境使用容器内路径
-    checkpoint-dir: file:///opt/flink/checkpoints
-    savepoint-dir: file:///opt/flink/savepoints
+    checkpoint-dir: file:///opt/flink/checkpoints  # Checkpoint 存储目录
+    savepoint-dir: file:///opt/flink/savepoints  # Savepoint 存储目录
+    incremental: true  # RocksDB 增量 Checkpoint，减少状态快照体积
+    local-recovery: true  # 启用本地恢复，加快失败恢复速度
+
+  # 重启策略配置
+  restart:
+    strategy: failure-rate  # Docker 更接近长期运行环境，建议使用 failure-rate
+    fixed-delay:
+      attempts: 5  # 预留参数：切换到 fixed-delay 时可直接使用
+      delay-ms: 15000  # 固定延迟 15 秒
+    failure-rate:
+      max-failures-per-interval: 3  # 10 分钟内允许最多失败 3 次
+      failure-rate-interval-ms: 600000
+      delay-ms: 30000  # 单次失败后等待 30 秒再拉起
   
   # Web UI 配置
   web:
     enabled: true  # 启用 Web UI
-    port: 8082  # Web UI 端口
     address: 0.0.0.0  # 监听所有网络接口
     submit:
       enable: true  # 允许通过 Web UI 提交作业
     cancel:
       enable: true  # 允许通过 Web UI 取消作业
     refresh-interval: 3000  # 刷新间隔（毫秒）
+    # 各个作业的 Web UI 端口配置
+    # 注意：每个作业需要使用不同的端口，避免端口冲突
+    port:
+      ods: 8083      # ODS 作业端口
+      dwd: 8082      # DWD 作业端口
+      dws-1min: 8084 # DWS 1分钟作业端口
+      dws-5min: 8085 # DWS 5分钟作业端口
 
 # 应用配置
 application:

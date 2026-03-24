@@ -1,12 +1,12 @@
 package com.crypto.dw.flink;
 
 import com.crypto.dw.config.ConfigLoader;
-import com.crypto.dw.config.MetricsConfig;
+import com.crypto.dw.exception.FlinkJobExceptionHandler;
+import com.crypto.dw.flink.factory.FlinkEnvironmentFactory;
 import com.crypto.dw.flink.factory.FlinkTableFactory;
 import com.crypto.dw.flink.schema.TableSchemas;
+import com.crypto.dw.utils.SqlFileLoader;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.flink.configuration.Configuration;
-import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.table.api.TableResult;
 import org.apache.flink.table.api.bridge.java.StreamTableEnvironment;
 import org.slf4j.Logger;
@@ -37,49 +37,15 @@ public class FlinkDWDJobSQL {
         // 加载配置
         ConfigLoader config = ConfigLoader.getInstance();
 
-        // 创建 Flink 执行环境(启用 Web UI 和 Metrics)
-        Configuration flinkConfig = new Configuration();
-
-        // 启用 Web UI(注意:端口参数必须是 int 类型)
-        flinkConfig.setBoolean("web.submit.enable", true);
-        flinkConfig.setBoolean("web.cancel.enable", true);
-        flinkConfig.setInteger("rest.port", 8082);  // Web UI 端口(避免与 ODS 作业冲突)
-        flinkConfig.setString("rest.address", "localhost");  // 监听地址
-        flinkConfig.setString("rest.bind-port", "8082-8090");  // 端口范围(字符串类型)
-
-        // 配置 Prometheus Metrics(推送到 Pushgateway)
-        MetricsConfig.configurePushgatewayReporter(
-                flinkConfig,
-                "localhost",  // Pushgateway 主机
-                9091,         // Pushgateway 端口
-                "flink-dwd-job"  // 作业名称
-        );
-
-        // 配置通用 Metrics 选项
-        MetricsConfig.configureCommonMetrics(flinkConfig);
-
-        // 创建 Flink 执行环境
-        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment(flinkConfig);
-
-        // 设置并行度
-        int parallelism = config.getInt("flink.execution.parallelism", 4);
-        env.setParallelism(parallelism);
-
-        // 启用 Checkpoint
-        long checkpointInterval = config.getLong("flink.checkpoint.interval", 60000);
-        env.enableCheckpointing(checkpointInterval);
-
-        logger.info("Flink Environment:");
-        logger.info("  Parallelism: " + parallelism);
-        logger.info("  Checkpoint Interval: " + checkpointInterval + " ms");
-        logger.info("  Web UI: http://localhost:8082");
-        logger.info("  Metrics: Pushgateway at localhost:9091");
-
-        // 创建 Table Environment
-        StreamTableEnvironment tableEnv = StreamTableEnvironment.create(env);
+        // 使用统一的 Environment 工厂，确保状态后端、Checkpoint、重启策略等配置完全一致
+        FlinkEnvironmentFactory envFactory = new FlinkEnvironmentFactory(config);
         
-        // 设置时区为中国时区(东八区) - 重要:确保日期计算正确
-        tableEnv.getConfig().setLocalTimeZone(java.time.ZoneId.of("Asia/Shanghai"));
+        // 从配置文件读取 Web UI 端口，避免硬编码
+        // 优化说明：端口配置化，提高灵活性，避免端口冲突
+        int webPort = config.getInt("flink.web.port.dwd", 8082);
+        logger.info("Web UI 端口: {}", webPort);
+        
+        StreamTableEnvironment tableEnv = envFactory.createTableEnvironment("flink-dwd-job", webPort);
 
         // 使用工厂类创建表
         FlinkTableFactory tableFactory = new FlinkTableFactory(config);
@@ -124,8 +90,9 @@ public class FlinkDWDJobSQL {
             tableResult.await();
 
         } catch (Exception e) {
-            logger.error("Flink DWD SQL 作业执行失败", e);
-            throw e;
+            // 使用统一的异常处理器
+            // 优化说明：统一异常处理，便于日志分析和问题定位
+            FlinkJobExceptionHandler.handleException("Flink DWD SQL Job", e);
         }
     }
 

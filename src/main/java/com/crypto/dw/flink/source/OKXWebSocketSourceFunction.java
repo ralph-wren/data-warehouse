@@ -40,6 +40,9 @@ public class OKXWebSocketSourceFunction extends RichSourceFunction<String> {
     
     private final ConfigLoader config;
     private final List<String> symbols;
+    private final int maxReconnectAttempts;
+    private final long initialReconnectDelayMs;
+    private final long maxReconnectDelayMs;
     
     // WebSocket 客户端
     private transient OKXWebSocketClientInternal wsClient;
@@ -60,6 +63,10 @@ public class OKXWebSocketSourceFunction extends RichSourceFunction<String> {
     public OKXWebSocketSourceFunction(ConfigLoader config, List<String> symbols) {
         this.config = config;
         this.symbols = symbols;
+        // 复用配置文件中的重连参数，避免这里和普通 WebSocket 客户端的重试策略脱节
+        this.maxReconnectAttempts = config.getInt("okx.websocket.reconnect.max-retries", 10);
+        this.initialReconnectDelayMs = config.getLong("okx.websocket.reconnect.initial-delay", 1000L);
+        this.maxReconnectDelayMs = config.getLong("okx.websocket.reconnect.max-delay", 60000L);
     }
     
     @Override
@@ -77,49 +84,56 @@ public class OKXWebSocketSourceFunction extends RichSourceFunction<String> {
         logger.info("Starting OKX WebSocket connection...");
         
         try {
-            // 创建 WebSocket 客户端
-            String wsUrl = config.getString("okx.websocket.url", "wss://ws.okx.com:8443/ws/v5/public");
-            wsClient = new OKXWebSocketClientInternal(wsUrl, ctx, symbols);
-            
-            // 连接 WebSocket
-            wsClient.connectBlocking();
-            
-            if (wsClient.isOpen()) {
-                logger.info("WebSocket connected successfully");
-                logger.info("========================================");
-                logger.info("Data collection started");
-                logger.info("========================================");
-            } else {
-                logger.error("Failed to connect to WebSocket");
-                throw new RuntimeException("WebSocket connection failed");
-            }
-            
             // 启动统计线程
             startStatisticsThread();
+
+            // 修复说明：
+            // 1. 外层循环只由 running 控制，避免连接一断开就直接退出 run()
+            // 2. 断开连接后统一在循环内做重连，而不是依赖 while 条件外的偶然时机
+            int reconnectAttempts = 0;
             
             // 保持运行,直到被取消
-            while (running.get() && wsClient.isOpen()) {
+            while (running.get()) {
                 try {
+                    if (wsClient == null || !wsClient.isOpen()) {
+                        if (reconnectAttempts >= maxReconnectAttempts) {
+                            throw new RuntimeException("WebSocket reconnect attempts exceeded limit: " + maxReconnectAttempts);
+                        }
+
+                        if (reconnectAttempts > 0) {
+                            long reconnectDelayMs = calculateReconnectDelayMs(reconnectAttempts);
+                            logger.warn(
+                                "WebSocket disconnected, attempt {} to reconnect after {} ms",
+                                reconnectAttempts,
+                                reconnectDelayMs
+                            );
+                            Thread.sleep(reconnectDelayMs);
+                        }
+
+                        reconnectAttempts++;
+                        connectWebSocket(ctx);
+
+                        if (!wsClient.isOpen()) {
+                            throw new RuntimeException("WebSocket connection failed");
+                        }
+
+                        reconnectAttempts = 0;
+                        logger.info("WebSocket connected successfully");
+                        logger.info("========================================");
+                        logger.info("Data collection started");
+                        logger.info("========================================");
+                    }
+
                     // 每秒检查一次连接状态
                     Thread.sleep(1000);
-                    
-                    // 如果连接断开,尝试重连
-                    if (!wsClient.isOpen() && running.get()) {
-                        logger.warn("WebSocket disconnected, attempting to reconnect...");
-                        wsClient.reconnectBlocking();
-                        
-                        if (wsClient.isOpen()) {
-                            logger.info("WebSocket reconnected successfully");
-                        } else {
-                            logger.error("Failed to reconnect WebSocket");
-                            throw new RuntimeException("WebSocket reconnection failed");
-                        }
-                    }
-                    
                 } catch (InterruptedException e) {
                     logger.info("Source function interrupted");
                     Thread.currentThread().interrupt();
                     break;
+                } catch (Exception e) {
+                    errorCount.incrementAndGet();
+                    logger.error("WebSocket loop error, will retry if allowed: {}", e.getMessage());
+                    closeWebSocketQuietly();
                 }
             }
             
@@ -139,10 +153,7 @@ public class OKXWebSocketSourceFunction extends RichSourceFunction<String> {
         
         try {
             // 关闭 WebSocket
-            if (wsClient != null) {
-                logger.info("Closing WebSocket connection...");
-                wsClient.close();
-            }
+            closeWebSocketQuietly();
             
             // 打印最终统计
             logger.info("========================================");
@@ -154,6 +165,46 @@ public class OKXWebSocketSourceFunction extends RichSourceFunction<String> {
         } catch (Exception e) {
             logger.error("Error during cancellation", e);
         }
+    }
+
+    /**
+     * 创建并连接 WebSocket 客户端
+     *
+     * 每次重连都创建新客户端，避免复用已关闭实例带来的状态问题
+     */
+    private void connectWebSocket(SourceContext<String> ctx) throws Exception {
+        closeWebSocketQuietly();
+
+        String wsUrl = config.getString("okx.websocket.url", "wss://ws.okx.com:8443/ws/v5/public");
+        wsClient = new OKXWebSocketClientInternal(wsUrl, ctx, symbols);
+        wsClient.connectBlocking();
+    }
+
+    /**
+     * 关闭 WebSocket，供 cancel() 和异常恢复共用
+     */
+    private void closeWebSocketQuietly() {
+        try {
+            if (wsClient != null) {
+                logger.info("Closing WebSocket connection...");
+                wsClient.close();
+            }
+        } catch (Exception e) {
+            logger.warn("Failed to close WebSocket cleanly: {}", e.getMessage());
+        } finally {
+            // 关闭后立即清空引用，避免后续误用旧连接实例
+            wsClient = null;
+        }
+    }
+
+    /**
+     * 计算指数退避重连间隔
+     */
+    private long calculateReconnectDelayMs(int reconnectAttempts) {
+        return Math.min(
+            initialReconnectDelayMs * (long) Math.pow(2, Math.max(0, reconnectAttempts - 1)),
+            maxReconnectDelayMs
+        );
     }
     
     /**

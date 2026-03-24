@@ -4,7 +4,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.yaml.snakeyaml.Yaml;
 import java.io.InputStream;
 import java.io.Serializable;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -28,6 +30,8 @@ public class ConfigLoader implements Serializable {
     
     private ConfigLoader() {
         loadConfig();
+        // 加载配置后立即验证必需的配置项
+        validateRequiredConfigs();
     }
     
     public static synchronized ConfigLoader getInstance() {
@@ -35,6 +39,85 @@ public class ConfigLoader implements Serializable {
             instance = new ConfigLoader();
         }
         return instance;
+    }
+    
+    /**
+     * 验证必需的配置项
+     * 
+     * 在应用启动时检查所有必需的配置项是否存在，
+     * 避免运行时才发现配置缺失，提高错误发现的及时性。
+     * 
+     * 必需配置项包括：
+     * - Kafka 连接配置
+     * - Doris 连接配置
+     * - 数据库和表配置
+     * 
+     * @throws IllegalStateException 如果有必需配置项缺失
+     */
+    public void validateRequiredConfigs() {
+        log.info("=== 开始验证配置项 ===");
+        
+        // 定义必需的配置项
+        // 注意：这些配置项是应用运行的最低要求
+        String[] requiredKeys = {
+            // Kafka 配置
+            "kafka.bootstrap-servers",
+            "kafka.topic.crypto-ticker",
+            
+            // Doris 配置
+            "doris.fe.http-url",
+            "doris.fe.jdbc-url",
+            "doris.database",
+            
+            // 表配置
+            "doris.tables.ods",
+            "doris.tables.dwd",
+            "doris.tables.dws-1min"
+        };
+        
+        // 收集缺失的配置项
+        List<String> missingKeys = new ArrayList<>();
+        for (String key : requiredKeys) {
+            String value = getString(key);
+            if (value == null || value.trim().isEmpty()) {
+                missingKeys.add(key);
+                log.error("❌ 缺失必需配置项: {}", key);
+            } else {
+                log.debug("✅ 配置项存在: {} = {}", key, maskSensitiveValue(key, value));
+            }
+        }
+        
+        // 如果有缺失的配置项，抛出异常
+        if (!missingKeys.isEmpty()) {
+            String errorMsg = "缺失必需的配置项: " + String.join(", ", missingKeys);
+            log.error("=== 配置验证失败 ===");
+            log.error(errorMsg);
+            throw new IllegalStateException(errorMsg);
+        }
+        
+        log.info("✅ 所有必需配置项验证通过");
+        log.info("=== 配置验证完成 ===");
+    }
+    
+    /**
+     * 屏蔽敏感配置值（用于日志输出）
+     * 
+     * @param key 配置项名称
+     * @param value 配置项值
+     * @return 屏蔽后的值（敏感信息显示为 ******）
+     */
+    private String maskSensitiveValue(String key, String value) {
+        // 敏感配置项关键字
+        String[] sensitiveKeywords = {"password", "secret", "key", "token"};
+        
+        // 检查是否是敏感配置项
+        for (String keyword : sensitiveKeywords) {
+            if (key.toLowerCase().contains(keyword)) {
+                return "******";
+            }
+        }
+        
+        return value;
     }
     
     /**
@@ -90,120 +173,86 @@ public class ConfigLoader implements Serializable {
      * 加载 YAML 文件
      * 支持从 classpath 加载配置文件
      * 
-     * 注意：添加了详细的调试信息和多种加载方式，以适应不同的运行环境（本地、StreamPark、Docker 等）
-     */
-    /**
-     * 加载 YAML 文件
-     * 支持从 classpath 加载配置文件
+     * 优化说明：
+     * 1. 简化加载逻辑，减少冗余代码
+     * 2. 减少调试日志，提高性能
+     * 3. 删除未使用的变量
      * 
-     * 注意：针对 Flink ChildFirstClassLoader 优化，使用多种加载方式
-     * 方法 1: 标准 ClassLoader 方式
-     * 方法 2: URL + openStream 方式
-     * 方法 3: JAR 文件系统方式（适用于 ChildFirstClassLoader）
+     * @param filename 配置文件名（如 application-dev.yml）
+     * @return 配置 Map，如果加载失败返回空 Map
      */
     private Map<String, Object> loadYamlFile(String filename) {
         try {
             Yaml yaml = new Yaml();
 
-            // 打印调试信息
-            log.info("=== 配置文件加载调试信息 ===");
-            log.info("目标文件: " + filename);
-            log.info("当前工作目录: " + System.getProperty("user.dir"));
-            log.info("ClassLoader: " + getClass().getClassLoader().getClass().getName());
-
             // 尝试多种路径加载配置文件
-            InputStream inputStream = null;
+            // 优先级：config/ > 根路径
             String[] paths = {
                 "config/" + filename,  // 标准路径（推荐）
-                filename,              // 根路径
-                "/" + filename,        // 绝对路径
-                "/config/" + filename  // 绝对路径 + config
+                filename               // 根路径（备选）
             };
 
-            String successPath = null;
+            InputStream inputStream = null;
 
             // 方法 1: 使用 getResourceAsStream（标准方式）
             for (String path : paths) {
-                log.info("尝试路径 (getResourceAsStream): " + path);
                 inputStream = getClass().getClassLoader().getResourceAsStream(path);
                 if (inputStream != null) {
-                    successPath = path;
-                    log.info("✅ 成功加载配置文件 (getResourceAsStream): " + path);
+                    log.info("✅ 成功加载配置文件: {}", path);
                     break;
-                } else {
-                    log.info("❌ 路径不存在: " + path);
                 }
             }
 
-            // 方法 2: 如果方法 1 失败，尝试使用 getResource + openStream（适用于 ChildFirstClassLoader）
+            // 方法 2: 如果方法 1 失败，尝试使用 getResource + openStream
+            // 这种方式适用于某些特殊的 ClassLoader（如 Flink 的 ChildFirstClassLoader）
             if (inputStream == null) {
-                log.info("尝试使用 getResource + openStream 方式...");
                 for (String path : paths) {
-                    log.info("尝试路径 (getResource): " + path);
                     try {
                         java.net.URL resource = getClass().getClassLoader().getResource(path);
                         if (resource != null) {
-                            log.info("找到资源 URL: " + resource);
                             inputStream = resource.openStream();
                             if (inputStream != null) {
-                                successPath = path;
-                                log.info("✅ 成功加载配置文件 (getResource): " + path);
+                                log.info("✅ 成功加载配置文件 (getResource): {}", path);
                                 break;
                             }
-                        } else {
-                            log.info("❌ 资源不存在: " + path);
                         }
                     } catch (Exception e) {
-                        log.info("❌ 加载失败: " + path + " - " + e.getMessage());
+                        // 忽略错误，继续尝试下一个路径
                     }
                 }
             }
 
-            // 方法 3: 如果方法 2 失败，尝试使用 JAR 文件系统方式（适用于 Flink ChildFirstClassLoader）
+            // 方法 3: 如果方法 2 失败，尝试使用 JAR 文件系统方式
+            // 这种方式可以绕过某些 ClassLoader 的限制
             if (inputStream == null) {
-                log.info("尝试使用 JAR 文件系统方式...");
                 inputStream = loadFromJarFileSystem(filename);
                 if (inputStream != null) {
                     log.info("✅ 成功加载配置文件 (JAR FileSystem)");
                 }
             }
 
+            // 如果所有方法都失败，返回空 Map
             if (inputStream == null) {
-                log.error("Error: Config file not found: " + filename);
-                log.error("Tried all methods: getResourceAsStream, getResource, JAR FileSystem");
-
-                // 尝试列出 classpath 中的资源（调试用）
-                try {
-                    java.net.URL resource = getClass().getClassLoader().getResource("config/");
-                    if (resource != null) {
-                        log.info("Found config/ directory at: " + resource);
-                    } else {
-                        log.info("config/ directory not found in classpath");
-                    }
-                } catch (Exception e) {
-                    log.info("Cannot list classpath resources: " + e.getMessage());
-                }
-
+                log.error("❌ 配置文件未找到: {}", filename);
+                log.error("请确保配置文件存在于 src/main/resources/config/ 目录");
                 return new HashMap<>();
             }
 
-            log.info("开始解析 YAML 文件...");
+            // 解析 YAML 文件
             Map<String, Object> data = yaml.load(inputStream);
             inputStream.close();
 
             if (data == null || data.isEmpty()) {
-                log.error("Warning: Config file is empty: " + filename);
+                log.warn("⚠️ 配置文件为空: {}", filename);
                 return new HashMap<>();
             }
 
-            log.info("✅ 配置文件解析成功，包含 " + data.size() + " 个顶级配置项");
-            log.info("=== 配置文件加载完成 ===");
-
+            log.info("✅ 配置文件解析成功，包含 {} 个顶级配置项", data.size());
             return data;
+
         } catch (Exception e) {
-            log.error("Error loading config file: " + filename);
-            log.error("Exception: " + e.getClass().getName() + ": " + e.getMessage());
-            e.printStackTrace();
+            log.error("❌ 加载配置文件失败: {}", filename);
+            log.error("异常信息: {}: {}", e.getClass().getName(), e.getMessage());
             return new HashMap<>();
         }
     }

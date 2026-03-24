@@ -85,33 +85,63 @@ doris:
 flink:
   # 执行环境配置
   execution:
+    runtime-mode: STREAMING  # 实时作业固定使用 STREAMING 模式
     parallelism: 4  # 本地开发可以使用较高并行度
-    max-parallelism: 128
+    max-parallelism: 128  # 建议尽早固定，避免后续状态扩缩容带来 restore 复杂度
+    buffer-timeout-ms: 100  # 延迟与吞吐的折中值；越小延迟越低，越大吞吐越高
+    auto-watermark-interval-ms: 200  # Watermark 推进周期，事件时间作业建议保留
   
   # Checkpoint 配置
   checkpoint:
-    interval: 60000  # 60 秒（增加间隔，减少 Checkpoint 频率）
-    mode: EXACTLY_ONCE
-    timeout: 300000  # 5 分钟（增加超时时间，避免 Checkpoint 失败）
-    min-pause: 500
-    max-concurrent: 1
+    interval: 60000  # 60 秒，开发环境先用 1 分钟，减少本地频繁快照
+    mode: EXACTLY_ONCE  # Kafka -> Doris 这类链路默认优先保证一致性
+    timeout: 300000  # 5 分钟，避免本地磁盘或 IO 抖动导致超时
+    min-pause: 10000  # 两次 Checkpoint 之间至少间隔 10 秒，降低状态后端压力
+    max-concurrent: 1  # 一般建议保持 1，配置简单且更稳定
+    tolerable-failed-checkpoints: 3  # 短时抖动允许少量失败，避免作业立刻重启
+    externalized-retention: DELETE_ON_CANCELLATION  # 本地环境默认取消时删除，避免占满磁盘
+    snapshot-compression: true  # 建议开启，减少快照体积
+    checkpoints-after-tasks-finish: true  # 允许部分任务结束后继续参与 checkpoint
+    unaligned:
+      enabled: false  # 默认关闭；只有在明显反压、barrier 对齐慢时再开启
+      aligned-timeout-ms: 0  # 0 表示一直走对齐 checkpoint
+      max-subtasks-per-channel-state-file: 5  # 控制 channel state 文件数量，避免过碎
   
   # 状态后端配置
   state:
-    backend: rocksdb
-    checkpoint-dir: file:///tmp/flink-checkpoints
-    savepoint-dir: file:///tmp/flink-savepoints
+    backend: rocksdb  # 状态后端类型：推荐 rocksdb / hashmap
+    checkpoint-dir: file:///tmp/flink-checkpoints  # Checkpoint 存储目录
+    savepoint-dir: file:///tmp/flink-savepoints  # Savepoint 存储目录
+    incremental: true  # RocksDB 增量 Checkpoint，减少状态快照体积
+    local-recovery: true  # 启用本地恢复，加快失败恢复速度
+
+  # 重启策略配置
+  restart:
+    strategy: fixed-delay  # 开发环境更适合固定延迟重启，便于定位问题
+    fixed-delay:
+      attempts: 3  # 最多重试 3 次
+      delay-ms: 10000  # 每次重试前等待 10 秒
+    failure-rate:
+      max-failures-per-interval: 3  # 预留参数：切到 failure-rate 时可直接使用
+      failure-rate-interval-ms: 600000  # 10 分钟统计窗口
+      delay-ms: 30000  # 失败后等待 30 秒再重启
   
   # Web UI 配置
   web:
     enabled: true  # 启用 Web UI
-    port: 8082  # Web UI 端口
     address: 0.0.0.0  # 监听所有网络接口
     submit:
       enable: true  # 允许通过 Web UI 提交作业
     cancel:
       enable: true  # 允许通过 Web UI 取消作业
     refresh-interval: 3000  # 刷新间隔（毫秒）
+    # 各个作业的 Web UI 端口配置
+    # 注意：每个作业需要使用不同的端口，避免端口冲突
+    port:
+      ods: 8083      # ODS 作业端口
+      dwd: 8082      # DWD 作业端口
+      dws-1min: 8084 # DWS 1分钟作业端口
+      dws-5min: 8085 # DWS 5分钟作业端口
 
 # 应用配置
 application:

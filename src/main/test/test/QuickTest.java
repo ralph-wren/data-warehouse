@@ -1,4 +1,4 @@
-package com.crypto.dw.test;
+package test;
 
 import com.crypto.dw.config.ConfigLoader;
 import com.crypto.dw.kafka.KafkaProducerManager;

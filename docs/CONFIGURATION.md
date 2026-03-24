@@ -226,7 +226,7 @@ int batchSize = config.getInt("kafka.producer.batch-size", 1000);
 bash test-config.sh
 
 # 或直接运行 Java 类
-mvn exec:java -Dexec.mainClass="com.crypto.dw.ConfigTest"
+mvn exec:java -Dexec.mainClass="test.ConfigTest"
 ```
 
 ### 验证环境变量

@@ -5,16 +5,20 @@ import com.crypto.dw.flink.factory.DorisSinkFactory;
 import com.crypto.dw.flink.factory.FlinkEnvironmentFactory;
 import com.crypto.dw.flink.watermark.WatermarkStrategyFactory;
 import com.crypto.dw.model.TickerData;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.doris.flink.sink.DorisSink;
-import org.apache.flink.api.common.functions.MapFunction;
+import org.apache.flink.api.common.functions.FlatMapFunction;
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
 import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.util.Collector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.math.BigDecimal;
 
 /**
  * Flink ODS 作业 - 使用官方 Doris Connector (DataStream API)
@@ -79,9 +83,13 @@ public class FlinkODSJobDataStream {
         logger.info("================");
 
         // 使用工厂类创建 Flink Stream Environment (减少重复代码)
-        // 注意: 使用端口 8083 避免与其他作业冲突
+        // 从配置文件读取 Web UI 端口，避免硬编码
+        // 优化说明：端口配置化，提高灵活性，避免端口冲突
         FlinkEnvironmentFactory envFactory = new FlinkEnvironmentFactory(config);
-        StreamExecutionEnvironment env = envFactory.createStreamEnvironment("flink-ods-datastream-job", 8083);
+        int webPort = config.getInt("flink.web.port.ods", 8083);
+        logger.info("Web UI 端口: {}", webPort);
+        
+        StreamExecutionEnvironment env = envFactory.createStreamEnvironment("flink-ods-datastream-job", webPort);
         
         // 配置 Kafka Source
         KafkaSource<String> kafkaSource = createKafkaSource(config);
@@ -100,8 +108,11 @@ public class FlinkODSJobDataStream {
         logger.info("  Startup Mode: " + config.getString("kafka.consumer.startup-mode", "earliest"));
         
         // 数据转换：JSON -> Doris 格式
+        // 修复说明：
+        // 1. 改用 flatMap 显式丢弃脏数据，避免 map 返回 null 继续传到下游
+        // 2. 去掉 disableChaining，让 Flink 自动做链优化，减少不必要的网络与序列化开销
         DataStream<String> odsStream = rawStream
-            .map(new ODSTransformFunction()).disableChaining()
+            .flatMap(new ODSTransformFunction())
             .name("ODS Transform");
         
         // 配置官方 Doris Sink（使用工厂类，避免重复代码）
@@ -167,41 +178,89 @@ public class FlinkODSJobDataStream {
     /**
      * ODS 数据转换函数
      * 将 Kafka JSON 数据转换为 Doris 格式
+     * 
+     * 注意：使用静态 ObjectMapper 实例，避免重复创建，提高性能
      */
-    public static class ODSTransformFunction implements MapFunction<String, String> {
+    public static class ODSTransformFunction implements FlatMapFunction<String, String> {
         
-        private final ObjectMapper objectMapper = new ObjectMapper();
+        // 静态 ObjectMapper 实例，所有算子实例共享，减少内存占用
+        // 注意：ObjectMapper 是线程安全的，可以在多线程环境中共享
+        private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
         
         @Override
-        public String map(String value) throws Exception {
+        public void flatMap(String value, Collector<String> out) {
             try {
                 // 解析 Ticker 数据
-                TickerData ticker = objectMapper.readValue(value, TickerData.class);
-                
+                TickerData ticker = OBJECT_MAPPER.readValue(value, TickerData.class);
+
                 // 构建 Doris JSON 格式
-                StringBuilder json = new StringBuilder();
-                json.append("{");
-                json.append("\"inst_id\":\"").append(ticker.getInstId()).append("\",");
-                json.append("\"timestamp\":").append(ticker.getTs()).append(",");
-                json.append("\"last_price\":").append(ticker.getLast()).append(",");
-                json.append("\"bid_price\":").append(ticker.getBidPx()).append(",");
-                json.append("\"ask_price\":").append(ticker.getAskPx()).append(",");
-                json.append("\"bid_size\":").append(ticker.getBidSz()).append(",");
-                json.append("\"ask_size\":").append(ticker.getAskSz()).append(",");
-                json.append("\"volume_24h\":").append(ticker.getVol24h()).append(",");
-                json.append("\"high_24h\":").append(ticker.getHigh24h()).append(",");
-                json.append("\"low_24h\":").append(ticker.getLow24h()).append(",");
-                json.append("\"open_24h\":").append(ticker.getOpen24h()).append(",");
-                json.append("\"data_source\":\"OKX\",");
-                json.append("\"ingest_time\":").append(System.currentTimeMillis());
-                json.append("}");
-                
-                return json.toString();
-                
+                // 使用 ObjectNode 统一处理字符串转数字，避免手写 JSON 时出现 null/非法数字导致脏数据
+                ObjectNode jsonNode = OBJECT_MAPPER.createObjectNode();
+                jsonNode.put("inst_id", requireText(ticker.getInstId(), "inst_id"));
+                jsonNode.put("timestamp", parseLong(ticker.getTs(), "timestamp"));
+                jsonNode.put("last_price", parseDecimal(ticker.getLast(), "last_price"));
+                jsonNode.put("bid_price", parseDecimal(ticker.getBidPx(), "bid_price"));
+                jsonNode.put("ask_price", parseDecimal(ticker.getAskPx(), "ask_price"));
+                jsonNode.put("bid_size", parseDecimal(ticker.getBidSz(), "bid_size"));
+                jsonNode.put("ask_size", parseDecimal(ticker.getAskSz(), "ask_size"));
+                jsonNode.put("volume_24h", parseDecimal(ticker.getVol24h(), "volume_24h"));
+                jsonNode.put("high_24h", parseDecimal(ticker.getHigh24h(), "high_24h"));
+                jsonNode.put("low_24h", parseDecimal(ticker.getLow24h(), "low_24h"));
+                jsonNode.put("open_24h", parseDecimal(ticker.getOpen24h(), "open_24h"));
+                jsonNode.put("data_source", "OKX");
+                jsonNode.put("ingest_time", System.currentTimeMillis());
+
+                out.collect(jsonNode.toString());
             } catch (Exception e) {
-                logger.error("Failed to transform data: {}", e.getMessage());
-                // 返回 null 会被过滤掉
-                return null;
+                // 修复说明：这里不再返回 null，而是直接丢弃坏数据，避免 null 继续流入下游
+                logger.warn("Failed to transform Kafka record, record will be dropped. Error: {}", e.getMessage());
+            }
+        }
+
+        /**
+         * 读取必填字符串字段
+         * 
+         * @param value 字段值
+         * @param fieldName 字段名（用于错误提示）
+         * @return 非空字符串
+         * @throws IllegalArgumentException 如果字段为空
+         */
+        private String requireText(String value, String fieldName) {
+            if (value == null || value.trim().isEmpty()) {
+                throw new IllegalArgumentException("Missing required field: " + fieldName);
+            }
+            return value;
+        }
+
+        /**
+         * 将字符串解析为 Long，失败时直接抛错，由上层丢弃坏数据
+         * 
+         * @param value 字符串值
+         * @param fieldName 字段名（用于错误提示）
+         * @return Long 值
+         * @throws IllegalArgumentException 如果解析失败
+         */
+        private long parseLong(String value, String fieldName) {
+            try {
+                return Long.parseLong(requireText(value, fieldName));
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException("Invalid long field: " + fieldName + ", value=" + value, e);
+            }
+        }
+
+        /**
+         * 将字符串解析为 BigDecimal，失败时直接抛错，由上层丢弃坏数据
+         * 
+         * @param value 字符串值
+         * @param fieldName 字段名（用于错误提示）
+         * @return BigDecimal 值
+         * @throws IllegalArgumentException 如果解析失败
+         */
+        private BigDecimal parseDecimal(String value, String fieldName) {
+            try {
+                return new BigDecimal(requireText(value, fieldName));
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException("Invalid decimal field: " + fieldName + ", value=" + value, e);
             }
         }
     }

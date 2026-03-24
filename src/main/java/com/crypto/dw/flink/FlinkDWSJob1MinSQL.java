@@ -36,8 +36,13 @@ public class FlinkDWSJob1MinSQL {
         ConfigLoader config = ConfigLoader.getInstance();
         
         // 使用工厂类创建 Flink Table Environment(减少重复代码)
+        // 从配置文件读取 Web UI 端口，避免硬编码
+        // 优化说明：端口配置化，提高灵活性，避免端口冲突
         FlinkEnvironmentFactory envFactory = new FlinkEnvironmentFactory(config);
-        StreamTableEnvironment tableEnv = envFactory.createTableEnvironment("flink-dws-1min-job", 8083);
+        int webPort = config.getInt("flink.web.port.dws-1min", 8084);
+        logger.info("Web UI 端口: {}", webPort);
+        
+        StreamTableEnvironment tableEnv = envFactory.createTableEnvironment("flink-dws-1min-job", webPort);
         
         // 使用工厂类创建表(减少重复代码)
         FlinkTableFactory tableFactory = new FlinkTableFactory(config);

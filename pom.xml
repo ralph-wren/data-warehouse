@@ -203,6 +203,7 @@
         </dependency>
 
         <!-- Lombok (optional, for reducing boilerplate) -->
+        <!-- 注意：scope=provided 表示编译时需要，运行时由容器提供 -->
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
@@ -225,16 +226,11 @@
             <scope>test</scope>
         </dependency>
 
+        <!-- FastJSON - 用于 JSON 处理 -->
         <dependency>
             <groupId>com.alibaba</groupId>
             <artifactId>fastjson</artifactId>
             <version>2.0.57</version>
-        </dependency>
-
-        <dependency>
-            <groupId>org.projectlombok</groupId>
-            <artifactId>lombok</artifactId>
-            <version>1.18.30</version>
         </dependency>
     </dependencies>
 

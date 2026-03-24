@@ -22,12 +22,40 @@ doris:
 # Flink 配置
 flink:
   execution:
-    parallelism: 8
+    runtime-mode: STREAMING  # 生产环境固定使用流式模式
+    parallelism: 8  # 按当前资源给出保守默认值
+    max-parallelism: 256  # 生产环境建议预留更大的扩容空间
+    buffer-timeout-ms: 100  # 兼顾吞吐和延迟
+    auto-watermark-interval-ms: 200  # 保持稳定的事件时间推进
   checkpoint:
-    interval: 120000
+    interval: 120000  # 2 分钟做一次 checkpoint，降低远程存储压力
+    mode: EXACTLY_ONCE  # 生产默认保持精确一次
+    timeout: 600000  # 10 分钟，给远程存储和大状态更多完成时间
+    min-pause: 30000  # 30 秒冷却时间，避免 checkpoint 过密
+    max-concurrent: 1  # 稳定优先
+    tolerable-failed-checkpoints: 3  # 容忍短时网络/存储波动
+    externalized-retention: RETAIN_ON_CANCELLATION  # 生产取消作业后保留恢复点
+    snapshot-compression: true  # 建议开启
+    checkpoints-after-tasks-finish: true  # 保持默认推荐行为
+    unaligned:
+      enabled: false  # 默认关闭；出现严重反压时再评估开启
+      aligned-timeout-ms: 0  # 默认不切到 unaligned
+      max-subtasks-per-channel-state-file: 10  # 生产环境适当提高聚合度，减少小文件
   state:
-    checkpoint-dir: hdfs:///flink/checkpoints
-    savepoint-dir: hdfs:///flink/savepoints
+    backend: rocksdb  # 生产环境默认使用 RocksDB，适合大状态
+    checkpoint-dir: hdfs:///flink/checkpoints  # Checkpoint 存储目录
+    savepoint-dir: hdfs:///flink/savepoints  # Savepoint 存储目录
+    incremental: true  # RocksDB 增量 Checkpoint，降低远程存储开销
+    local-recovery: true  # 启用本地恢复，加快故障恢复速度
+  restart:
+    strategy: failure-rate  # 生产长跑作业推荐 failure-rate，更稳
+    fixed-delay:
+      attempts: 5  # 预留参数：切换时可直接使用
+      delay-ms: 30000
+    failure-rate:
+      max-failures-per-interval: 3  # 10 分钟内最多失败 3 次
+      failure-rate-interval-ms: 600000
+      delay-ms: 30000  # 失败后等待 30 秒再重启
 
 # 应用配置
 application:

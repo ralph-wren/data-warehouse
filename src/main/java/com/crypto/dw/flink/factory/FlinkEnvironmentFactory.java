@@ -50,8 +50,12 @@ public class FlinkEnvironmentFactory {
     /**
      * 创建 StreamExecutionEnvironment (DataStream API)
      * 
+     * 根据配置自动选择本地模式或远程集群模式:
+     * - local: 本地模式,启动内嵌的 Flink 运行时
+     * - remote: 远程模式,连接到已存在的 Flink 集群
+     * 
      * @param jobName 作业名称(用于 Metrics 标识)
-     * @param webUIPort Web UI 端口(避免端口冲突)
+     * @param webUIPort Web UI 端口(避免端口冲突,仅本地模式有效)
      * @return 配置好的 StreamExecutionEnvironment
      */
     public StreamExecutionEnvironment createStreamEnvironment(String jobName, int webUIPort) {
@@ -60,11 +64,42 @@ public class FlinkEnvironmentFactory {
         logger.info("作业名称: {}", jobName);
         logger.info("==========================================");
         
-        // 创建 Flink 配置
-        Configuration flinkConfig = createFlinkConfiguration(jobName, webUIPort);
+        // 读取集群模式配置
+        String clusterMode = config.getString("flink.cluster.mode", "local");
+        logger.info("集群模式: {}", clusterMode);
         
-        // 创建执行环境
-        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment(flinkConfig);
+        StreamExecutionEnvironment env;
+        
+        if ("remote".equalsIgnoreCase(clusterMode)) {
+            // 远程集群模式
+            String remoteHost = config.getString("flink.cluster.remote.host", "localhost");
+            int remotePort = config.getInt("flink.cluster.remote.port", 8081);
+            String jarPath = config.getString("flink.cluster.remote.jar-path", "target/realtime-crypto-datawarehouse-1.0.0.jar");
+            
+            logger.info("连接到远程 Flink 集群:");
+            logger.info("  JobManager: {}:{}", remoteHost, remotePort);
+            logger.info("  JAR 路径: {}", jarPath);
+            
+            // 创建 Flink 配置
+            Configuration flinkConfig = createFlinkConfiguration(jobName, webUIPort);
+            
+            // 创建远程执行环境
+            env = StreamExecutionEnvironment.createRemoteEnvironment(
+                remoteHost,
+                remotePort,
+                flinkConfig,
+                jarPath
+            );
+        } else {
+            // 本地模式
+            logger.info("使用本地模式");
+            
+            // 创建 Flink 配置
+            Configuration flinkConfig = createFlinkConfiguration(jobName, webUIPort);
+            
+            // 创建本地执行环境
+            env = StreamExecutionEnvironment.getExecutionEnvironment(flinkConfig);
+        }
         
         // 统一应用执行配置，避免每个作业各自重复实现
         int parallelism = configureExecutionEnvironment(env);
@@ -81,8 +116,10 @@ public class FlinkEnvironmentFactory {
     /**
      * 创建 StreamTableEnvironment (Table API / SQL)
      * 
+     * 根据配置自动选择本地模式或远程集群模式
+     * 
      * @param jobName 作业名称(用于 Metrics 标识)
-     * @param webUIPort Web UI 端口(避免端口冲突)
+     * @param webUIPort Web UI 端口(避免端口冲突,仅本地模式有效)
      * @return 配置好的 StreamTableEnvironment
      */
     public StreamTableEnvironment createTableEnvironment(String jobName, int webUIPort) {
@@ -91,11 +128,42 @@ public class FlinkEnvironmentFactory {
         logger.info("作业名称: {}", jobName);
         logger.info("==========================================");
         
-        // 创建 Flink 配置
-        Configuration flinkConfig = createFlinkConfiguration(jobName, webUIPort);
+        // 读取集群模式配置
+        String clusterMode = config.getString("flink.cluster.mode", "local");
+        logger.info("集群模式: {}", clusterMode);
         
-        // 创建执行环境
-        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment(flinkConfig);
+        StreamExecutionEnvironment env;
+        
+        if ("remote".equalsIgnoreCase(clusterMode)) {
+            // 远程集群模式
+            String remoteHost = config.getString("flink.cluster.remote.host", "localhost");
+            int remotePort = config.getInt("flink.cluster.remote.port", 8081);
+            String jarPath = config.getString("flink.cluster.remote.jar-path", "target/realtime-crypto-datawarehouse-1.0.0.jar");
+            
+            logger.info("连接到远程 Flink 集群:");
+            logger.info("  JobManager: {}:{}", remoteHost, remotePort);
+            logger.info("  JAR 路径: {}", jarPath);
+            
+            // 创建 Flink 配置
+            Configuration flinkConfig = createFlinkConfiguration(jobName, webUIPort);
+            
+            // 创建远程执行环境
+            env = StreamExecutionEnvironment.createRemoteEnvironment(
+                remoteHost,
+                remotePort,
+                flinkConfig,
+                jarPath
+            );
+        } else {
+            // 本地模式
+            logger.info("使用本地模式");
+            
+            // 创建 Flink 配置
+            Configuration flinkConfig = createFlinkConfiguration(jobName, webUIPort);
+            
+            // 创建本地执行环境
+            env = StreamExecutionEnvironment.getExecutionEnvironment(flinkConfig);
+        }
         
         // Table 作业和 DataStream 作业共用同一套环境参数，避免配置行为不一致
         int parallelism = configureExecutionEnvironment(env);

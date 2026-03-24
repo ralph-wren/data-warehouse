@@ -109,6 +109,7 @@ public class SqlFileLoader {
         }
         
         logger.info("✅ SQL 参数替换完成");
+        logger.info(result);
         return result;
     }
     

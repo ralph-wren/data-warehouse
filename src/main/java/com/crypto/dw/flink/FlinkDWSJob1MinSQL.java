@@ -59,10 +59,15 @@ public class FlinkDWSJob1MinSQL {
         tableEnv.executeSql(kafkaSourceDDL);
         
         // 创建 Doris DWS Sink 表
+        // 重构说明: 使用显式参数传递，不再通过表类型隐式推断
         logger.info("Creating Doris DWS Sink Table...");
+        String database = config.getString("doris.database");
+        String dwsTable = config.getString("doris.tables.dws-1min");
         String dorisSinkDDL = tableFactory.createDorisSinkTable(
             "doris_dws_1min_sink",
-            "dws-1min",
+            database,
+            dwsTable,
+            "dws_1min_" + System.currentTimeMillis(),  // Label 前缀
             TableSchemas.DORIS_DWS_1MIN_SINK_SCHEMA
         );
         tableEnv.executeSql(dorisSinkDDL);

@@ -65,19 +65,28 @@ public class FlinkADSRealtimeMetricsJob {
         FlinkTableFactory tableFactory = new FlinkTableFactory(config);
         
         // 创建 Doris DWS Source 表 (1分钟 K 线)
+        // 重构说明: 使用显式参数传递，不再通过表类型隐式推断
         logger.info("Creating Doris DWS Source Table...");
+        String database = config.getString("doris.database");
+        String dwsTable = config.getString("doris.tables.dws-1min");
         String dwsSourceDDL = tableFactory.createDorisSourceTable(
             "dws_source",
-            "dws_crypto_ticker_1min",
+            database,
+            dwsTable,
+            "*",  // 读取所有字段
             TableSchemas.DORIS_DWS_1MIN_SOURCE_SCHEMA_WITH_WATERMARK
         );
         tableEnv.executeSql(dwsSourceDDL);
         
         // 创建 Doris ADS Sink 表 (实时指标)
+        // 重构说明: 使用显式参数传递，不再通过表类型隐式推断
         logger.info("Creating Doris ADS Sink Table...");
+        String adsTable = config.getString("doris.tables.ads");
         String adsSinkDDL = tableFactory.createDorisSinkTable(
             "ads_realtime_metrics_sink",
-            "ads_crypto_ticker_realtime_metrics",
+            database,
+            adsTable,
+            "ads_metrics_" + System.currentTimeMillis(),  // Label 前缀
             TableSchemas.DORIS_ADS_REALTIME_METRICS_SINK_SCHEMA
         );
         tableEnv.executeSql(adsSinkDDL);

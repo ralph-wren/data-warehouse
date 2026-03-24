@@ -49,6 +49,18 @@ kafka:
     enable-auto-commit: false
     max-poll-records: 500
     startup-mode: earliest  # 消费模式: earliest（从头开始）, latest（从最新开始）, committed（从上次提交位置开始）
+    
+    # 每个 Flink 作业使用不同的 Consumer Group ID
+    # 这样可以独立管理每个作业的消费进度，避免相互影响
+    group-id:
+      collector: flink-collector-group        # 数据采集作业
+      ods-datastream: flink-ods-datastream-group  # ODS DataStream 作业
+      ods-sql: flink-ods-sql-group            # ODS SQL 作业
+      dwd: flink-dwd-group                    # DWD 作业
+      dws-1min: flink-dws-1min-group          # DWS 1分钟聚合作业
+      ads-metrics: flink-ads-metrics-group    # ADS 实时指标作业
+      ads-arbitrage: flink-ads-arbitrage-group  # ADS 套利计算作业
+      ads-monitor: flink-ads-monitor-group    # ADS 市场监控作业
 
 # Doris 配置
 # 注意：本地开发环境使用 localhost 或 127.0.0.1
@@ -101,6 +113,7 @@ flink:
     max-parallelism: 128  # 建议尽早固定，避免后续状态扩缩容带来 restore 复杂度
     buffer-timeout-ms: 100  # 延迟与吞吐的折中值；越小延迟越低，越大吞吐越高
     auto-watermark-interval-ms: 200  # Watermark 推进周期，事件时间作业建议保留
+    operator-chaining: false  # 算子链配置：false=禁用（Web UI 显示详细算子），true=启用（性能优化）
   
   # Checkpoint 配置
   checkpoint:

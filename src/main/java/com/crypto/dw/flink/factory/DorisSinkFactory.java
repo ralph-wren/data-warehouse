@@ -30,8 +30,12 @@ import java.util.Properties;
  * DorisSinkFactory factory = new DorisSinkFactory(config);
  * 
  * // 方式 1: 使用表类型（从配置文件读取库名和表名）
- * DorisSink<String> odsSink = factory.createDorisSink("ods");
- * DorisSink<String> dwdSink = factory.createDorisSink("dwd");
+ * String database = config.getString("doris.database", "crypto_dw");
+ * String odsTable = config.getString("doris.tables.ods", "ods_crypto_ticker_rt");
+ * DorisSink<String> odsSink = factory.createDorisSink(database, odsTable, "ods");
+ * 
+ * String dwdTable = config.getString("doris.tables.dwd", "dwd_crypto_ticker_detail");
+ * DorisSink<String> dwdSink = factory.createDorisSink(database, dwdTable, "dwd");
  * 
  * // 方式 2: 手动指定库名和表名（更灵活）
  * DorisSink<String> customSink = factory.createDorisSink(
@@ -49,7 +53,7 @@ import java.util.Properties;
  * </pre>
  * 
  * @author Kiro AI Assistant
- * @date 2026-03-23
+ * @date 2026-03-24
  */
 public class DorisSinkFactory {
     
@@ -62,21 +66,27 @@ public class DorisSinkFactory {
     }
     
     /**
-     * 创建 Doris Sink (DataStream API)
+     * 创建 Doris Sink (DataStream API) - 手动指定库名和表名
      * 
-     * @param tableType 表类型（ods/dwd/dws-1min）
-     * @return 配置好的 DorisSink
-     */
-    public DorisSink<String> createDorisSink(String tableType) {
-        // 根据表类型获取表名
-        String database = config.getString("doris.database", "crypto_dw");
-        String table = getDorisTableName(tableType);
-        
-        return createDorisSink(database, table, tableType);
-    }
-    
-    /**
-     * 创建 Doris Sink (DataStream API) - 支持手动指定库名和表名
+     * 说明：
+     * 1. 统一使用三参数方法，提高灵活性
+     * 2. 支持写入不同的数据库和表
+     * 3. Label 前缀用于 Stream Load 去重
+     * 
+     * 使用示例：
+     * <pre>
+     * // ODS 表
+     * String database = config.getString("doris.database", "crypto_dw");
+     * String odsTable = config.getString("doris.tables.ods", "ods_crypto_ticker_rt");
+     * DorisSink<String> odsSink = factory.createDorisSink(database, odsTable, "ods");
+     * 
+     * // DWD 表
+     * String dwdTable = config.getString("doris.tables.dwd", "dwd_crypto_ticker_detail");
+     * DorisSink<String> dwdSink = factory.createDorisSink(database, dwdTable, "dwd");
+     * 
+     * // 自定义表
+     * DorisSink<String> customSink = factory.createDorisSink("test_db", "test_table", "test");
+     * </pre>
      * 
      * @param database 数据库名称
      * @param table 表名
@@ -155,28 +165,5 @@ public class DorisSinkFactory {
             .setDorisOptions(dorisBuilder.build())
             .setSerializer(new SimpleStringSerializer())  // JSON 字符串序列化器
             .build();
-    }
-    
-    /**
-     * 根据表类型获取 Doris 表名
-     * 
-     * @param tableType 表类型（ods/dwd/dws-1min）
-     * @return Doris 表名
-     */
-    private String getDorisTableName(String tableType) {
-        switch (tableType.toLowerCase()) {
-            case "ods":
-                return config.getString("doris.tables.ods", "ods_crypto_ticker_rt");
-            case "dwd":
-                return config.getString("doris.tables.dwd", "dwd_crypto_ticker_detail");
-            case "dws-1min":
-                return config.getString("doris.tables.dws-1min", "dws_crypto_ticker_1min");
-            case "dws-5min":
-                return config.getString("doris.tables.dws-5min", "dws_crypto_ticker_5min");
-            case "ads":
-                return config.getString("doris.tables.ads", "ads_crypto_market_overview");
-            default:
-                throw new IllegalArgumentException("Unknown table type: " + tableType);
-        }
     }
 }

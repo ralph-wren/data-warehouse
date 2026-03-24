@@ -61,10 +61,15 @@ public class FlinkDWDJobSQL {
         tableEnv.executeSql(kafkaSourceDDL);
 
         // 创建 Doris DWD Sink 表
+        // 重构说明: 使用显式参数传递，不再通过表类型隐式推断
         logger.info("Creating Doris DWD Sink Table...");
+        String database = config.getString("doris.database");
+        String dwdTable = config.getString("doris.tables.dwd");
         String dorisSinkDDL = tableFactory.createDorisSinkTable(
             "doris_dwd_sink",
-            "dwd",
+            database,
+            dwdTable,
+            "dwd_" + System.currentTimeMillis(),  // Label 前缀
             TableSchemas.DORIS_DWD_SINK_SCHEMA
         );
         tableEnv.executeSql(dorisSinkDDL);

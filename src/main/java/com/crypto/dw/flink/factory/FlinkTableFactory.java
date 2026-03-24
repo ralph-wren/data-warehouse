@@ -96,19 +96,23 @@ public class FlinkTableFactory {
     public String createKafkaSourceTable(String tableName, String schema, boolean withWatermark, String groupId) {
         String bootstrapServers = config.getString("kafka.bootstrap-servers");
         String topic = config.getString("kafka.topic.crypto-ticker-spot");
-        String startupMode = config.getString("kafka.consumer.startup-mode", "latest-offset");
+        String startupMode = config.getString("kafka.consumer.startup-mode", "latest");
+        
+        // 转换 startup mode 为 Flink Table API 期望的格式
+        // 配置文件使用简写: earliest/latest/committed
+        // Flink Table API 需要完整枚举值: earliest-offset/latest-offset/group-offsets
+        String flinkStartupMode = convertStartupMode(startupMode);
         
         logger.info("创建 Kafka Source 表: {}", tableName);
         logger.info("  Bootstrap Servers: {}", bootstrapServers);
         logger.info("  Topic: {}", topic);
         logger.info("  Group ID: {}", groupId);
-        logger.info("  Startup Mode: {}", startupMode);
+        logger.info("  Startup Mode: {} -> {}", startupMode, flinkStartupMode);
         
         // 构建 Watermark 定义
         String watermark = "";
         if (withWatermark) {
             watermark = ",\n" +
-                    "    -- 定义事件时间和 Watermark\n" +
                     "    event_time AS TO_TIMESTAMP(FROM_UNIXTIME(`timestamp` / 1000)),\n" +
                     "    WATERMARK FOR event_time AS event_time - INTERVAL '5' SECOND\n";
         } else {
@@ -123,16 +127,55 @@ public class FlinkTableFactory {
         params.put("bootstrapServers", bootstrapServers);
         params.put("topic", topic);
         params.put("groupId", groupId);
-        params.put("startupMode", startupMode);
+        params.put("startupMode", flinkStartupMode);  // 使用转换后的值
         
         // 从 SQL 模板文件加载并替换参数
         return SqlFileLoader.loadSqlWithParams("sql/flink/ddl/kafka_source.sql", params);
     }
     
     /**
-     * 创建 Doris Source 表 DDL (使用 ArrowFlightSQL 高性能读取)
+     * 转换 startup mode 为 Flink Table API 期望的格式
      * 
-     * 优化说明：使用 SQL 模板文件，便于维护和修改
+     * 配置文件使用简写形式,便于理解和配置:
+     * - earliest: 从最早数据开始
+     * - latest: 从最新数据开始
+     * - committed: 从上次提交位置开始
+     * 
+     * Flink Table API 需要完整的枚举值:
+     * - earliest-offset: 从最早数据开始
+     * - latest-offset: 从最新数据开始
+     * - group-offsets: 从上次提交位置开始
+     * 
+     * @param startupMode 配置文件中的 startup mode
+     * @return Flink Table API 期望的 startup mode
+     */
+    private String convertStartupMode(String startupMode) {
+        switch (startupMode.toLowerCase()) {
+            case "earliest":
+                return "earliest-offset";
+            case "latest":
+                return "latest-offset";
+            case "committed":
+            case "group-offsets":
+                return "group-offsets";
+            case "earliest-offset":
+            case "latest-offset":
+                // 如果已经是完整格式,直接返回
+                return startupMode;
+            default:
+                logger.warn("未知的 startup mode: {}, 使用默认值 latest-offset", startupMode);
+                return "latest-offset";
+        }
+    }
+    
+    /**
+     * 创建 Doris Source 表 DDL - 显式传入库名和表名（推荐使用）
+     * 
+     * 优化说明：
+     * 1. 使用 SQL 模板文件，便于维护和修改
+     * 2. 显式传入库名和表名，提高代码可读性
+     * 3. 可以读取任意数据库和表，不受配置文件限制
+     * 4. 使用 ArrowFlightSQL 高性能读取模式
      * 
      * ArrowFlightSQL 读取方式说明:
      * - Doris 2.1+ 支持,3.0+ 推荐使用
@@ -140,30 +183,6 @@ public class FlinkTableFactory {
      * - 内存占用更少,支持更大数据量
      * - 异步反序列化,提高吞吐量
      * - 不支持 CDC 增量读取,只能读取快照数据
-     * 
-     * @param tableName Flink 表名
-     * @param tableType Doris 表类型(ods/dwd/dws-1min)
-     * @param schema 字段定义
-     * @return Doris Source 表 DDL
-     */
-    public String createDorisSourceTable(String tableName, String tableType, String schema) {
-        // 从配置文件读取数据库名和表名
-        String database = config.getString("doris.database");
-        String dorisTable = getDorisTableName(tableType);
-        String readFields = config.getString("doris.source.read-fields", "*");
-        
-        // 调用重载方法，传入显式的库名和表名
-        return createDorisSourceTable(tableName, database, dorisTable, readFields, schema);
-    }
-    
-    /**
-     * 创建 Doris Source 表 DDL - 支持显式传入库名和表名（更灵活）
-     * 
-     * 优化说明：
-     * 1. 使用 SQL 模板文件，便于维护和修改
-     * 2. 支持显式传入库名和表名，提高灵活性
-     * 3. 可以读取任意数据库和表，不受配置文件限制
-     * 4. 使用 ArrowFlightSQL 高性能读取模式
      * 
      * 使用场景：
      * - 读取测试数据库
@@ -173,11 +192,13 @@ public class FlinkTableFactory {
      * 
      * 使用示例：
      * <pre>
-     * // 读取测试数据库
+     * // 读取 ODS 表
+     * String database = config.getString("doris.database", "crypto_dw");
+     * String odsTable = config.getString("doris.tables.ods", "ods_crypto_ticker_rt");
      * String ddl = factory.createDorisSourceTable(
-     *     "test_source",         // Flink 表名
-     *     "test_db",             // 数据库名
-     *     "test_table",          // 表名
+     *     "ods_source",          // Flink 表名
+     *     database,              // 数据库名
+     *     odsTable,              // 表名
      *     "*",                   // 读取字段（* 表示所有字段）
      *     schema                 // 字段定义
      * );
@@ -228,27 +249,7 @@ public class FlinkTableFactory {
     }
     
     /**
-     * 创建 Doris Sink 表 DDL
-     * 
-     * 优化说明：使用 SQL 模板文件，便于维护和修改
-     * 
-     * @param tableName Flink 表名
-     * @param tableType Doris 表类型(ods/dwd/dws-1min)
-     * @param schema 字段定义
-     * @return Doris Sink 表 DDL
-     */
-    public String createDorisSinkTable(String tableName, String tableType, String schema) {
-        // 从配置文件读取数据库名和表名
-        String database = config.getString("doris.database");
-        String dorisTable = getDorisTableName(tableType);
-        String labelPrefix = tableType + "_" + System.currentTimeMillis();
-        
-        // 调用重载方法，传入显式的库名和表名
-        return createDorisSinkTable(tableName, database, dorisTable, labelPrefix, schema);
-    }
-    
-    /**
-     * 创建 Doris Sink 表 DDL - 支持显式传入库名和表名（更灵活）
+     * 创建 Doris Sink 表 DDL - 显式传入库名和表名（推荐使用）
      * 
      * 优化说明：
      * 1. 使用 SQL 模板文件，便于维护和修改
@@ -317,21 +318,5 @@ public class FlinkTableFactory {
         
         // 从 SQL 模板文件加载并替换参数
         return SqlFileLoader.loadSqlWithParams("sql/flink/ddl/doris_sink.sql", params);
-    }
-    
-    /**
-     * 根据表类型获取 Doris 表名
-     */
-    private String getDorisTableName(String tableType) {
-        switch (tableType.toLowerCase()) {
-            case "ods":
-                return config.getString("doris.tables.ods", "ods_crypto_ticker_rt");
-            case "dwd":
-                return config.getString("doris.tables.dwd", "dwd_crypto_ticker_detail");
-            case "dws-1min":
-                return config.getString("doris.tables.dws-1min", "dws_crypto_ticker_1min");
-            default:
-                throw new IllegalArgumentException("Unknown table type: " + tableType);
-        }
     }
 }

@@ -102,14 +102,14 @@ public class FlinkADSArbitrageJob {
         logger.info("并行度: {}", parallelism);
         
         // 使用工厂类创建 Kafka Source
+        // 重要：套利作业需要同时读取现货和合约数据，使用不同的 Consumer Group
         KafkaSourceFactory kafkaSourceFactory = new KafkaSourceFactory(config);
         
         // ========== 步骤 1: 创建现货价格流 ==========
         logger.info("创建现货价格流...");
-        KafkaSource<String> spotKafkaSource = kafkaSourceFactory.createKafkaSource(
-            config.getString("kafka.topic.crypto-ticker-spot-spot", "crypto-ticker-spot"),  // 现货 Topic
-            "arbitrage-spot-consumer",  // Consumer Group
-            "earliest"  // 从最早数据开始（处理历史数据）
+        KafkaSource<String> spotKafkaSource = kafkaSourceFactory.createKafkaSourceForJob(
+            "ads-arbitrage",  // 作业类型
+            config.getString("kafka.topic.crypto-ticker-spot", "crypto-ticker-spot")  // 现货 Topic
         );
         
         DataStream<SpotPrice> spotStream = env.fromSource(
@@ -143,12 +143,11 @@ public class FlinkADSArbitrageJob {
         logger.info("✓ 现货价格流创建成功");
         
         // ========== 步骤 2: 创建合约价格流 ==========
-        // 说明：从合约 Topic 读取数据
+        // 说明：从合约 Topic 读取数据，使用相同的 Consumer Group（套利作业统一管理）
         logger.info("创建合约价格流...");
-        KafkaSource<String> swapKafkaSource = kafkaSourceFactory.createKafkaSource(
-            config.getString("kafka.topic.crypto-ticker-spot-swap", "crypto-ticker-swap"),  // 合约 Topic
-            "arbitrage-swap-consumer",  // Consumer Group
-            "earliest"
+        KafkaSource<String> swapKafkaSource = kafkaSourceFactory.createKafkaSourceForJob(
+            "ads-arbitrage",  // 作业类型（与现货使用相同的 Group ID）
+            config.getString("kafka.topic.crypto-ticker-swap", "crypto-ticker-swap")  // 合约 Topic
         );
         
         DataStream<FuturesPrice> futuresStream = env.fromSource(

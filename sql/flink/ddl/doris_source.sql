@@ -1,15 +1,3 @@
--- Doris Source 表 DDL 模板
--- 功能：创建 Doris Source 表，用于从 Doris 读取数据（ArrowFlightSQL 高性能模式）
--- 
--- 参数说明：
--- ${tableName} - 表名
--- ${schema} - 字段定义
--- ${feNodes} - FE 节点地址
--- ${tableIdentifier} - 表标识符（database.table）
--- ${username} - 用户名
--- ${password} - 密码
--- ${readFields} - 读取字段列表
-
 CREATE TABLE ${tableName} (
 ${schema}
 ) WITH (

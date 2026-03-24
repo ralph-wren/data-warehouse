@@ -253,12 +253,22 @@ public class FlinkEnvironmentFactory {
         long autoWatermarkIntervalMs = config.getLong("flink.execution.auto-watermark-interval-ms", 200L);
         env.getConfig().setAutoWatermarkInterval(autoWatermarkIntervalMs);
 
+        // 算子链配置：控制是否将可链接的算子合并在一起
+        // false = 禁用算子链，Web UI 会显示详细的算子拆分，方便调试和监控
+        // true = 启用算子链，性能优化，减少网络传输和序列化开销
+        boolean operatorChaining = config.getBoolean("flink.execution.operator-chaining", true);
+        if (!operatorChaining) {
+            env.disableOperatorChaining();
+            logger.info("算子链已禁用，Web UI 将显示详细的算子拆分");
+        }
+
         logger.info("执行配置:");
         logger.info("  runtime-mode: {}", runtimeMode);
         logger.info("  parallelism: {}", parallelism);
         logger.info("  max-parallelism: {}", maxParallelism);
         logger.info("  buffer-timeout-ms: {}", bufferTimeoutMs);
         logger.info("  auto-watermark-interval-ms: {}", autoWatermarkIntervalMs);
+        logger.info("  operator-chaining: {}", operatorChaining);
 
         return parallelism;
     }

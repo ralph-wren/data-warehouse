@@ -58,19 +58,70 @@ public class KafkaSourceFactory {
     }
     
     /**
-     * 创建 Kafka Source - 使用默认配置
+     * 创建 Kafka Source - 指定作业类型（推荐使用）
      * 
-     * 从配置文件读取:
-     * - kafka.bootstrap-servers: Kafka 服务器地址
-     * - kafka.topic.crypto-ticker: Topic 名称
-     * - kafka.consumer.group-id: Consumer Group ID
-     * - kafka.consumer.startup-mode: 消费模式（earliest/latest/committed）
+     * 从配置文件读取对应作业的 Consumer Group ID:
+     * - collector: kafka.consumer.group-id.collector
+     * - ods-datastream: kafka.consumer.group-id.ods-datastream
+     * - ods-sql: kafka.consumer.group-id.ods-sql
+     * - dwd: kafka.consumer.group-id.dwd
+     * - dws-1min: kafka.consumer.group-id.dws-1min
+     * - ads-metrics: kafka.consumer.group-id.ads-metrics
+     * - ads-arbitrage: kafka.consumer.group-id.ads-arbitrage
+     * - ads-monitor: kafka.consumer.group-id.ads-monitor
      * 
+     * 使用示例:
+     * <pre>
+     * // DWD 作业
+     * KafkaSource<String> source = factory.createKafkaSourceForJob("dwd");
+     * 
+     * // ADS 套利作业
+     * KafkaSource<String> source = factory.createKafkaSourceForJob("ads-arbitrage");
+     * </pre>
+     * 
+     * @param jobType 作业类型（collector/ods-datastream/ods-sql/dwd/dws-1min/ads-metrics/ads-arbitrage/ads-monitor）
      * @return 配置好的 KafkaSource
      */
-    public KafkaSource<String> createKafkaSource() {
-        String topic = config.getString("kafka.topic.crypto-ticker");
-        String groupId = config.getString("kafka.consumer.group-id", "flink-consumer");
+    public KafkaSource<String> createKafkaSourceForJob(String jobType) {
+        String topic = config.getString("kafka.topic.crypto-ticker-spot");
+        String groupIdKey = "kafka.consumer.group-id." + jobType;
+        String groupId = config.getString(groupIdKey, "flink-" + jobType + "-group");
+        String startupMode = config.getString("kafka.consumer.startup-mode", "latest");
+        
+        return createKafkaSource(topic, groupId, startupMode);
+    }
+    
+    /**
+     * 创建 Kafka Source - 指定作业类型和 Topic（最灵活）
+     * 
+     * 从配置文件读取对应作业的 Consumer Group ID
+     * 
+     * 使用场景：
+     * - 读取不同的 Topic（现货/合约）
+     * - 使用作业专属的 Consumer Group
+     * 
+     * 使用示例:
+     * <pre>
+     * // DWD 作业读取现货 Topic
+     * KafkaSource<String> spotSource = factory.createKafkaSourceForJob(
+     *     "dwd", 
+     *     config.getString("kafka.topic.crypto-ticker-spot")
+     * );
+     * 
+     * // DWD 作业读取合约 Topic
+     * KafkaSource<String> swapSource = factory.createKafkaSourceForJob(
+     *     "dwd", 
+     *     config.getString("kafka.topic.crypto-ticker-swap")
+     * );
+     * </pre>
+     * 
+     * @param jobType 作业类型
+     * @param topic Topic 名称
+     * @return 配置好的 KafkaSource
+     */
+    public KafkaSource<String> createKafkaSourceForJob(String jobType, String topic) {
+        String groupIdKey = "kafka.consumer.group-id." + jobType;
+        String groupId = config.getString(groupIdKey, "flink-" + jobType + "-group");
         String startupMode = config.getString("kafka.consumer.startup-mode", "latest");
         
         return createKafkaSource(topic, groupId, startupMode);
@@ -150,6 +201,7 @@ public class KafkaSourceFactory {
         logger.info("  Consumer Group: {}", groupId);
         
         // 根据配置选择消费模式
+        // 重要说明: committed 模式需要回退策略,避免 NoOffsetForPartitionException
         OffsetsInitializer offsetsInitializer;
         switch (startupMode.toLowerCase()) {
             case "latest":
@@ -157,8 +209,12 @@ public class KafkaSourceFactory {
                 logger.info("  Startup Mode: latest（从最新数据开始）");
                 break;
             case "committed":
-                offsetsInitializer = OffsetsInitializer.committedOffsets();
-                logger.info("  Startup Mode: committed（从上次提交的 offset 开始）");
+                // 使用 committedOffsets 并指定回退策略
+                // 如果没有提交的 offset,则从最新数据开始（避免重复消费历史数据）
+                offsetsInitializer = OffsetsInitializer.committedOffsets(
+                    org.apache.kafka.clients.consumer.OffsetResetStrategy.LATEST
+                );
+                logger.info("  Startup Mode: committed（从上次提交的 offset 开始,无 offset 时从最新数据开始）");
                 break;
             case "earliest":
             default:

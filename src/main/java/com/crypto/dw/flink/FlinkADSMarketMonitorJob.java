@@ -86,10 +86,9 @@ public class FlinkADSMarketMonitorJob {
         );
         
         // 使用工厂类创建 Kafka Source
+        // 重要：使用作业专属的 Consumer Group ID，避免与其他作业冲突
         KafkaSourceFactory kafkaSourceFactory = new KafkaSourceFactory(config);
-        KafkaSource<String> kafkaSource = kafkaSourceFactory.createKafkaSource(
-            "ads-market-monitor-consumer"  // 独立的 Consumer Group
-        );
+        KafkaSource<String> kafkaSource = kafkaSourceFactory.createKafkaSourceForJob("ads-monitor");
         
         // 创建数据流，配置 Watermark 策略
         // Watermark 说明：允许 5 秒的乱序数据，超过 5 秒的延迟数据会被丢弃

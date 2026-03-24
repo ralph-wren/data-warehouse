@@ -3,15 +3,14 @@ package com.crypto.dw.flink;
 import com.crypto.dw.config.ConfigLoader;
 import com.crypto.dw.flink.factory.DorisSinkFactory;
 import com.crypto.dw.flink.factory.FlinkEnvironmentFactory;
+import com.crypto.dw.flink.factory.KafkaSourceFactory;
 import com.crypto.dw.flink.watermark.WatermarkStrategyFactory;
 import com.crypto.dw.model.TickerData;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.doris.flink.sink.DorisSink;
 import org.apache.flink.api.common.functions.FlatMapFunction;
-import org.apache.flink.api.common.serialization.SimpleStringSchema;
 import org.apache.flink.connector.kafka.source.KafkaSource;
-import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.util.Collector;
@@ -27,6 +26,8 @@ import java.math.BigDecimal;
  * 
  * 重构说明:
  * - 使用 FlinkEnvironmentFactory 创建 Stream Environment (减少约 60 行代码)
+ * - 使用 KafkaSourceFactory 创建 Kafka Source (减少约 30 行代码)
+ * - 使用 DorisSinkFactory 创建 Doris Sink (减少约 40 行代码)
  * - 保留 DataStream API 的灵活性
  * - 统一 Web UI 端口和 Metrics 配置
  * 
@@ -34,6 +35,7 @@ import java.math.BigDecimal;
  * 1. 使用官方 DorisSink 替代自定义 HTTP Stream Load
  * 2. 兼容 Doris 3.1.x 版本
  * 3. 支持自动重试和错误处理
+ * 4. 所有组件创建都使用工厂类，避免重复代码
  */ 
 public class FlinkODSJobDataStream {
     
@@ -91,8 +93,10 @@ public class FlinkODSJobDataStream {
         
         StreamExecutionEnvironment env = envFactory.createStreamEnvironment("flink-ods-datastream-job", webPort);
         
-        // 配置 Kafka Source
-        KafkaSource<String> kafkaSource = createKafkaSource(config);
+        // 使用工厂类创建 Kafka Source（减少重复代码）
+        // 优化说明：统一 Kafka Source 创建逻辑，便于维护和复用
+        KafkaSourceFactory kafkaSourceFactory = new KafkaSourceFactory(config);
+        KafkaSource<String> kafkaSource = kafkaSourceFactory.createKafkaSource();
         
         // 创建数据流
         DataStream<String> rawStream = env.fromSource(
@@ -134,46 +138,6 @@ public class FlinkODSJobDataStream {
         // 执行作业
         env.execute("Flink ODS Job - DataStream API");
     }
-    
-    /**
-     * 创建 Kafka Source
-     * 
-     * 消费模式说明：
-     * - earliest: 从最早的数据开始消费（适合处理历史数据）
-     * - latest: 从最新的数据开始消费（适合实时处理）
-     * - committed: 从上次提交的 offset 开始消费
-     */
-    private static KafkaSource<String> createKafkaSource(ConfigLoader config) {
-        // 读取消费模式配置，默认使用 latest（从最新数据开始）
-        String startupMode = config.getString("kafka.consumer.startup-mode", "latest");
-        
-        // 根据配置选择消费模式
-        OffsetsInitializer offsetsInitializer;
-        switch (startupMode.toLowerCase()) {
-            case "latest":
-                offsetsInitializer = OffsetsInitializer.latest();
-                logger.info("  Startup Mode: latest（从最新数据开始）");
-                break;
-            case "committed":
-                offsetsInitializer = OffsetsInitializer.committedOffsets();
-                logger.info("  Startup Mode: committed（从上次提交的 offset 开始）");
-                break;
-            case "earliest":
-            default:
-                offsetsInitializer = OffsetsInitializer.earliest();
-                logger.info("  Startup Mode: earliest（从最早数据开始）");
-                break;
-        }
-        
-        return KafkaSource.<String>builder()
-            .setBootstrapServers(config.getString("kafka.bootstrap-servers"))
-            .setTopics(config.getString("kafka.topic.crypto-ticker"))
-            .setGroupId(config.getString("kafka.consumer.group-id", "flink-ods-datastream-consumer"))
-            .setStartingOffsets(offsetsInitializer)  // 使用配置的消费模式
-            .setValueOnlyDeserializer(new SimpleStringSchema())
-            .build();
-    }
-    
     
     /**
      * ODS 数据转换函数

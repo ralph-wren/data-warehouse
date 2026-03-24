@@ -6,6 +6,10 @@ import java.math.BigDecimal;
 
 /**
  * OKX Ticker 数据模型
+ * 
+ * 更新说明：
+ * - 添加辅助方法，方便获取 BigDecimal 类型的数值
+ * - 添加 hasAnomaly 字段，用于标记价格异常
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class TickerData {
@@ -54,6 +58,9 @@ public class TickerData {
     
     @JsonProperty("sodUtc8")
     private String sodUtc8;          // UTC+8 时开盘价
+    
+    // 非 JSON 字段：用于 Flink 处理
+    private boolean hasAnomaly = false;  // 是否检测到价格异常
     
     // Getters and Setters
     
@@ -177,6 +184,60 @@ public class TickerData {
         this.sodUtc8 = sodUtc8;
     }
     
+    public boolean isHasAnomaly() {
+        return hasAnomaly;
+    }
+    
+    public void setHasAnomaly(boolean hasAnomaly) {
+        this.hasAnomaly = hasAnomaly;
+    }
+    
+    // 辅助方法：获取 BigDecimal 类型的数值
+    // 说明：方便 Flink 处理时使用，避免重复的字符串转换
+    
+    /**
+     * 获取交易对符号（去掉 -USDT 后缀）
+     */
+    public String getSymbol() {
+        if (instId != null) {
+            return instId.replace("-USDT", "");
+        }
+        return instId;
+    }
+    
+    /**
+     * 获取最新成交价（BigDecimal 类型）
+     */
+    public BigDecimal getLastPrice() {
+        try {
+            return last != null ? new BigDecimal(last) : null;
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+    
+    /**
+     * 获取 24 小时交易量（BigDecimal 类型）
+     */
+    public BigDecimal getVolume24h() {
+        try {
+            return vol24h != null ? new BigDecimal(vol24h) : null;
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+    
+    /**
+     * 获取时间戳（long 类型）
+     */
+    public long getTimestamp() {
+        try {
+            return ts != null ? Long.parseLong(ts) : System.currentTimeMillis();
+        } catch (NumberFormatException e) {
+            return System.currentTimeMillis();
+        }
+    }
+    
     @Override
     public String toString() {
         return "TickerData{" +
@@ -188,6 +249,7 @@ public class TickerData {
                 ", low24h='" + low24h + '\'' +
                 ", vol24h='" + vol24h + '\'' +
                 ", ts='" + ts + '\'' +
+                ", hasAnomaly=" + hasAnomaly +
                 '}';
     }
 }

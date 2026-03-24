@@ -4,6 +4,7 @@ import com.crypto.dw.config.ConfigLoader;
 import com.crypto.dw.flink.factory.FlinkEnvironmentFactory;
 import com.crypto.dw.flink.factory.FlinkTableFactory;
 import com.crypto.dw.flink.schema.TableSchemas;
+import com.crypto.dw.utils.SqlFileLoader;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.flink.table.api.bridge.java.StreamTableEnvironment;
 import org.slf4j.Logger;
@@ -66,8 +67,10 @@ public class FlinkDWSJob1MinSQL {
         );
         tableEnv.executeSql(dorisSinkDDL);
         
-        // 执行窗口聚合 SQL
-        String insertSQL = createInsertSQL();
+        // 从 SQL 文件加载窗口聚合 SQL
+        // 优化说明：SQL 与代码分离，便于维护和修改
+        logger.info("加载 DWS 1Min INSERT SQL...");
+        String insertSQL = SqlFileLoader.loadSql("sql/flink/dws_1min_insert.sql");
         logger.info("Executing Window Aggregation SQL...");
         
         
@@ -77,51 +80,5 @@ public class FlinkDWSJob1MinSQL {
         
         
         tableEnv.executeSql(insertSQL);
-    }
-    
-    /**
-     * 创建窗口聚合 INSERT SQL
-     * 
-     * 架构说明:
-     * - 从 kafka_ticker_source 读取（Kafka 原始数据，JSON 格式，驼峰命名）✅
-     * 
-     * 注意: 
-     * 1. 源表字段名使用驼峰命名（instId, ts, last 等）
-     * 2. 需要将 JSON 字段转换为 DECIMAL 类型
-     * 3. 1分钟滚动窗口聚合,生成 K 线数据
-     */
-    private static String createInsertSQL() {
-        return "INSERT INTO doris_dws_1min_sink\n" +
-               "SELECT \n" +
-               "    instId as inst_id,\n" +
-               "    -- 窗口时间戳（毫秒）\n" +
-               "    UNIX_TIMESTAMP(CAST(window_start AS STRING)) * 1000 as window_start,\n" +
-               "    UNIX_TIMESTAMP(CAST(window_end AS STRING)) * 1000 as window_end,\n" +
-               "    1 as window_size,\n" +
-               "    -- K 线数据：开高低收\n" +
-               "    FIRST_VALUE(CAST(last AS DECIMAL(20, 8))) as open_price,\n" +
-               "    MAX(CAST(last AS DECIMAL(20, 8))) as high_price,\n" +
-               "    MIN(CAST(last AS DECIMAL(20, 8))) as low_price,\n" +
-               "    LAST_VALUE(CAST(last AS DECIMAL(20, 8))) as close_price,\n" +
-               "    -- 成交量（取最后一个值）\n" +
-               "    LAST_VALUE(CAST(vol24h AS DECIMAL(30, 8))) as volume,\n" +
-               "    -- 平均价\n" +
-               "    AVG(CAST(last AS DECIMAL(20, 8))) as avg_price,\n" +
-               "    -- 涨跌额和涨跌幅\n" +
-               "    LAST_VALUE(CAST(last AS DECIMAL(20, 8))) - FIRST_VALUE(CAST(last AS DECIMAL(20, 8))) as price_change,\n" +
-               "    CASE \n" +
-               "        WHEN FIRST_VALUE(CAST(last AS DECIMAL(20, 8))) > 0 \n" +
-               "        THEN (LAST_VALUE(CAST(last AS DECIMAL(20, 8))) - FIRST_VALUE(CAST(last AS DECIMAL(20, 8)))) / FIRST_VALUE(CAST(last AS DECIMAL(20, 8)))\n" +
-               "        ELSE 0\n" +
-               "    END as price_change_rate,\n" +
-               "    -- Tick 数量\n" +
-               "    CAST(COUNT(*) AS INT) as tick_count,\n" +
-               "    -- 处理时间\n" +
-               "    UNIX_TIMESTAMP() * 1000 as process_time\n" +
-               "FROM TABLE(\n" +
-               "    TUMBLE(TABLE kafka_ticker_source, DESCRIPTOR(event_time), INTERVAL '1' MINUTE)\n" +
-               ")\n" +
-               "WHERE CAST(last AS DECIMAL(20, 8)) > 0\n" +
-               "GROUP BY instId, window_start, window_end";
     }
 }

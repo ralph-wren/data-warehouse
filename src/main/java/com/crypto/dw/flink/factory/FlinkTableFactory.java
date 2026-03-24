@@ -1,8 +1,12 @@
 package com.crypto.dw.flink.factory;
 
 import com.crypto.dw.config.ConfigLoader;
+import com.crypto.dw.utils.SqlFileLoader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * Flink Table DDL 工厂类
@@ -13,6 +17,12 @@ import org.slf4j.LoggerFactory;
  * - Doris Source
  * - Doris Sink
  * 
+ * 优化说明：
+ * 1. 所有 DDL 使用 SQL 模板文件，便于维护和修改
+ * 2. 支持两种方式创建 Doris 表：
+ *    - 方式 1: 使用表类型（从配置文件读取库名和表名）
+ *    - 方式 2: 显式传入库名和表名（更灵活）
+ * 
  * 使用示例:
  * <pre>
  * ConfigLoader config = ConfigLoader.getInstance();
@@ -22,23 +32,45 @@ import org.slf4j.LoggerFactory;
  * String kafkaSourceDDL = factory.createKafkaSourceTable(
  *     "kafka_source",
  *     KafkaSourceSchema.TICKER_SCHEMA,
- *     true  // 带 Watermark
+ *     true,  // 带 Watermark
+ *     "my-consumer-group"
  * );
  * 
- * // 创建 Doris Source 表
+ * // 方式 1: 使用表类型创建 Doris Source 表（从配置文件读取）
  * String dorisSourceDDL = factory.createDorisSourceTable(
  *     "doris_ods_source",
- *     "ods",
+ *     "ods",  // 表类型
  *     DorisSourceSchema.ODS_SCHEMA
  * );
  * 
- * // 创建 Doris Sink 表
+ * // 方式 2: 显式传入库名和表名创建 Doris Source 表（更灵活）
+ * String dorisSourceDDL = factory.createDorisSourceTable(
+ *     "doris_test_source",
+ *     "test_db",      // 数据库名
+ *     "test_table",   // 表名
+ *     "*",            // 读取字段
+ *     DorisSourceSchema.TEST_SCHEMA
+ * );
+ * 
+ * // 方式 1: 使用表类型创建 Doris Sink 表（从配置文件读取）
  * String dorisSinkDDL = factory.createDorisSinkTable(
  *     "doris_dwd_sink",
- *     "dwd",
+ *     "dwd",  // 表类型
  *     DorisSinkSchema.DWD_SCHEMA
  * );
+ * 
+ * // 方式 2: 显式传入库名和表名创建 Doris Sink 表（更灵活）
+ * String dorisSinkDDL = factory.createDorisSinkTable(
+ *     "doris_test_sink",
+ *     "test_db",      // 数据库名
+ *     "test_table",   // 表名
+ *     "test",         // Label 前缀
+ *     DorisSinkSchema.TEST_SCHEMA
+ * );
  * </pre>
+ * 
+ * @author Kiro AI Assistant
+ * @date 2026-03-24
  */
 public class FlinkTableFactory {
     
@@ -53,12 +85,15 @@ public class FlinkTableFactory {
     /**
      * 创建 Kafka Source 表 DDL
      * 
+     * 优化说明：使用 SQL 模板文件，便于维护和修改
+     * 
      * @param tableName 表名
      * @param schema 字段定义(包含字段名、类型、注释)
      * @param withWatermark 是否添加 Watermark(用于窗口聚合)
+     * @param groupId Consumer Group ID
      * @return Kafka Source 表 DDL
      */
-    public String createKafkaSourceTable(String tableName, String schema, boolean withWatermark,String groupId) {
+    public String createKafkaSourceTable(String tableName, String schema, boolean withWatermark, String groupId) {
         String bootstrapServers = config.getString("kafka.bootstrap-servers");
         String topic = config.getString("kafka.topic.crypto-ticker");
         String startupMode = config.getString("kafka.consumer.startup-mode", "latest-offset");
@@ -69,36 +104,35 @@ public class FlinkTableFactory {
         logger.info("  Group ID: {}", groupId);
         logger.info("  Startup Mode: {}", startupMode);
         
-        StringBuilder ddl = new StringBuilder();
-        ddl.append("CREATE TABLE ").append(tableName).append(" (\n");
-        ddl.append(schema);
-        
-        // 添加 Watermark(如果需要)
+        // 构建 Watermark 定义
+        String watermark = "";
         if (withWatermark) {
-            ddl.append(",\n");
-            ddl.append("    -- 定义事件时间和 Watermark\n");
-            ddl.append("    event_time AS TO_TIMESTAMP(FROM_UNIXTIME(`timestamp` / 1000)),\n");
-            ddl.append("    WATERMARK FOR event_time AS event_time - INTERVAL '5' SECOND\n");
+            watermark = ",\n" +
+                    "    -- 定义事件时间和 Watermark\n" +
+                    "    event_time AS TO_TIMESTAMP(FROM_UNIXTIME(`timestamp` / 1000)),\n" +
+                    "    WATERMARK FOR event_time AS event_time - INTERVAL '5' SECOND\n";
         } else {
-            ddl.append("\n");
+            watermark = "\n";
         }
         
-        ddl.append(") WITH (\n");
-        ddl.append("    'connector' = 'kafka',\n");
-        ddl.append("    'topic' = '").append(topic).append("',\n");
-        ddl.append("    'properties.bootstrap.servers' = '").append(bootstrapServers).append("',\n");
-        ddl.append("    'properties.group.id' = '").append(groupId).append("',\n");
-        ddl.append("    'scan.startup.mode' = '").append(startupMode).append("',\n");
-        ddl.append("    'format' = 'json',\n");
-        ddl.append("    'json.fail-on-missing-field' = 'false',\n");
-        ddl.append("    'json.ignore-parse-errors' = 'true'\n");
-        ddl.append(")");
+        // 准备参数
+        Map<String, String> params = new HashMap<>();
+        params.put("tableName", tableName);
+        params.put("schema", schema);
+        params.put("watermark", watermark);
+        params.put("bootstrapServers", bootstrapServers);
+        params.put("topic", topic);
+        params.put("groupId", groupId);
+        params.put("startupMode", startupMode);
         
-        return ddl.toString();
+        // 从 SQL 模板文件加载并替换参数
+        return SqlFileLoader.loadSqlWithParams("sql/flink/ddl/kafka_source.sql", params);
     }
     
     /**
      * 创建 Doris Source 表 DDL (使用 ArrowFlightSQL 高性能读取)
+     * 
+     * 优化说明：使用 SQL 模板文件，便于维护和修改
      * 
      * ArrowFlightSQL 读取方式说明:
      * - Doris 2.1+ 支持,3.0+ 推荐使用
@@ -113,14 +147,64 @@ public class FlinkTableFactory {
      * @return Doris Source 表 DDL
      */
     public String createDorisSourceTable(String tableName, String tableType, String schema) {
-        String feNodes = config.getString("doris.fe.http-url").replace("http://", "");
+        // 从配置文件读取数据库名和表名
         String database = config.getString("doris.database");
         String dorisTable = getDorisTableName(tableType);
+        String readFields = config.getString("doris.source.read-fields", "*");
+        
+        // 调用重载方法，传入显式的库名和表名
+        return createDorisSourceTable(tableName, database, dorisTable, readFields, schema);
+    }
+    
+    /**
+     * 创建 Doris Source 表 DDL - 支持显式传入库名和表名（更灵活）
+     * 
+     * 优化说明：
+     * 1. 使用 SQL 模板文件，便于维护和修改
+     * 2. 支持显式传入库名和表名，提高灵活性
+     * 3. 可以读取任意数据库和表，不受配置文件限制
+     * 4. 使用 ArrowFlightSQL 高性能读取模式
+     * 
+     * 使用场景：
+     * - 读取测试数据库
+     * - 读取临时表
+     * - 读取其他项目的表
+     * - 动态指定源表
+     * 
+     * 使用示例：
+     * <pre>
+     * // 读取测试数据库
+     * String ddl = factory.createDorisSourceTable(
+     *     "test_source",         // Flink 表名
+     *     "test_db",             // 数据库名
+     *     "test_table",          // 表名
+     *     "*",                   // 读取字段（* 表示所有字段）
+     *     schema                 // 字段定义
+     * );
+     * 
+     * // 读取指定字段
+     * String ddl = factory.createDorisSourceTable(
+     *     "ods_source",
+     *     "crypto_dw",
+     *     "ods_crypto_ticker_rt",
+     *     "symbol,price,timestamp",  // 只读取这些字段
+     *     schema
+     * );
+     * </pre>
+     * 
+     * @param tableName Flink 表名
+     * @param database Doris 数据库名
+     * @param dorisTable Doris 表名
+     * @param readFields 读取字段列表（* 表示所有字段，或逗号分隔的字段名）
+     * @param schema 字段定义
+     * @return Doris Source 表 DDL
+     */
+    public String createDorisSourceTable(String tableName, String database, String dorisTable, 
+                                         String readFields, String schema) {
+        // 读取 Doris 连接配置
+        String feNodes = config.getString("doris.fe.http-url").replace("http://", "");
         String username = config.getString("doris.fe.username");
         String password = config.getString("doris.fe.password", "");
-        
-        // 读取字段配置
-        String readFields = config.getString("doris.source.read-fields", "*");
         
         logger.info("创建 Doris Source 表 (ArrowFlightSQL): {}", tableName);
         logger.info("  FE Nodes: {}", feNodes);
@@ -129,27 +213,24 @@ public class FlinkTableFactory {
         logger.info("  Read Fields: {}", readFields);
         logger.info("  Read Mode: ArrowFlightSQL (高性能模式)");
         
-        StringBuilder ddl = new StringBuilder();
-        ddl.append("CREATE TABLE ").append(tableName).append(" (\n");
-        ddl.append(schema);
-        ddl.append("\n) WITH (\n");
-        ddl.append("    'connector' = 'doris',\n");
-        ddl.append("    'fenodes' = '").append(feNodes).append("',\n");
-        ddl.append("    'table.identifier' = '").append(database).append(".").append(dorisTable).append("',\n");
-        ddl.append("    'username' = '").append(username).append("',\n");
-        ddl.append("    'password' = '").append(password).append("',\n");
-        // ⭐ ArrowFlightSQL 配置 - 高性能读取模式
-        ddl.append("    'doris.deserialize.arrow.async' = 'true',\n");  // 异步反序列化
-        ddl.append("    'doris.deserialize.queue.size' = '64',\n");     // 反序列化队列大小
-        ddl.append("    'doris.request.query.timeout.s' = '3600',\n");  // 查询超时时间(1小时)
-        ddl.append("    'doris.read.field' = '").append(readFields).append("'\n");  // 指定读取字段
-        ddl.append(")");
+        // 准备参数
+        Map<String, String> params = new HashMap<>();
+        params.put("tableName", tableName);
+        params.put("schema", schema);
+        params.put("feNodes", feNodes);
+        params.put("tableIdentifier", database + "." + dorisTable);
+        params.put("username", username);
+        params.put("password", password);
+        params.put("readFields", readFields);
         
-        return ddl.toString();
+        // 从 SQL 模板文件加载并替换参数
+        return SqlFileLoader.loadSqlWithParams("sql/flink/ddl/doris_source.sql", params);
     }
     
     /**
      * 创建 Doris Sink 表 DDL
+     * 
+     * 优化说明：使用 SQL 模板文件，便于维护和修改
      * 
      * @param tableName Flink 表名
      * @param tableType Doris 表类型(ods/dwd/dws-1min)
@@ -157,10 +238,62 @@ public class FlinkTableFactory {
      * @return Doris Sink 表 DDL
      */
     public String createDorisSinkTable(String tableName, String tableType, String schema) {
-        String feNodes = config.getString("doris.fe.http-url").replace("http://", "");
-        String beNodes = config.getString("doris.be.nodes", "127.0.0.1:8040");
+        // 从配置文件读取数据库名和表名
         String database = config.getString("doris.database");
         String dorisTable = getDorisTableName(tableType);
+        String labelPrefix = tableType + "_" + System.currentTimeMillis();
+        
+        // 调用重载方法，传入显式的库名和表名
+        return createDorisSinkTable(tableName, database, dorisTable, labelPrefix, schema);
+    }
+    
+    /**
+     * 创建 Doris Sink 表 DDL - 支持显式传入库名和表名（更灵活）
+     * 
+     * 优化说明：
+     * 1. 使用 SQL 模板文件，便于维护和修改
+     * 2. 支持显式传入库名和表名，提高灵活性
+     * 3. 可以写入到任意数据库和表，不受配置文件限制
+     * 
+     * 使用场景：
+     * - 写入到测试数据库
+     * - 写入到临时表
+     * - 写入到其他项目的表
+     * - 动态指定目标表
+     * 
+     * 使用示例：
+     * <pre>
+     * // 写入到测试数据库
+     * String ddl = factory.createDorisSinkTable(
+     *     "test_sink",           // Flink 表名
+     *     "test_db",             // 数据库名
+     *     "test_table",          // 表名
+     *     "test",                // Label 前缀
+     *     schema                 // 字段定义
+     * );
+     * 
+     * // 写入到临时表
+     * String ddl = factory.createDorisSinkTable(
+     *     "temp_sink",
+     *     "crypto_dw",
+     *     "temp_ticker_" + System.currentTimeMillis(),
+     *     "temp",
+     *     schema
+     * );
+     * </pre>
+     * 
+     * @param tableName Flink 表名
+     * @param database Doris 数据库名
+     * @param dorisTable Doris 表名
+     * @param labelPrefix Label 前缀（用于去重）
+     * @param schema 字段定义
+     * @return Doris Sink 表 DDL
+     */
+    public String createDorisSinkTable(String tableName, String database, String dorisTable, 
+                                       String labelPrefix, String schema) {
+        // 读取 Doris 连接配置
+        String feNodes = config.getString("doris.fe.http-url").replace("http://", "");
+        String beNodes = config.getString("doris.be.nodes", "127.0.0.1:8040");
         String username = config.getString("doris.fe.username");
         String password = config.getString("doris.fe.password", "");
         
@@ -169,24 +302,21 @@ public class FlinkTableFactory {
         logger.info("  BE Nodes: {}", beNodes);
         logger.info("  Database: {}", database);
         logger.info("  Table: {}", dorisTable);
+        logger.info("  Label Prefix: {}", labelPrefix);
         
-        StringBuilder ddl = new StringBuilder();
-        ddl.append("CREATE TABLE ").append(tableName).append(" (\n");
-        ddl.append(schema);
-        ddl.append("\n) WITH (\n");
-        ddl.append("    'connector' = 'doris',\n");
-        ddl.append("    'fenodes' = '").append(feNodes).append("',\n");
-        ddl.append("    'benodes' = '").append(beNodes).append("',\n");
-        ddl.append("    'table.identifier' = '").append(database).append(".").append(dorisTable).append("',\n");
-        ddl.append("    'username' = '").append(username).append("',\n");
-        ddl.append("    'password' = '").append(password).append("',\n");
-        ddl.append("    'sink.label-prefix' = '").append(tableType).append("_").append(System.currentTimeMillis()).append("',\n");
-        ddl.append("    'sink.properties.format' = 'json',\n");
-        ddl.append("    'sink.properties.read_json_by_line' = 'true',\n");  // 修复：添加逗号
-        ddl.append("    'sink.enable-2pc' = 'true'\n");  // ⭐ 启用两阶段提交（精准一次性必需）
-        ddl.append(")");
+        // 准备参数
+        Map<String, String> params = new HashMap<>();
+        params.put("tableName", tableName);
+        params.put("schema", schema);
+        params.put("feNodes", feNodes);
+        params.put("beNodes", beNodes);
+        params.put("tableIdentifier", database + "." + dorisTable);
+        params.put("username", username);
+        params.put("password", password);
+        params.put("labelPrefix", labelPrefix);
         
-        return ddl.toString();
+        // 从 SQL 模板文件加载并替换参数
+        return SqlFileLoader.loadSqlWithParams("sql/flink/ddl/doris_sink.sql", params);
     }
     
     /**

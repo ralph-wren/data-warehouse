@@ -1,6 +1,7 @@
 package com.crypto.dw.strategy;
 
 
+import com.crypto.dw.indicators.IndicatorTransform;
 import com.crypto.dw.utils.Ta4jNumUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -148,7 +149,8 @@ public class StrategyFactory2 {
 
         // 买入规则：价格触及下轨且成交量放大
         // 创建成交量阈值指标 - 降低成交量确认阈值以提高交易频率
-        TransformIndicator volumeThreshold = TransformIndicator.multiply(avgVolume, 1.05);
+        // ta4j 0.21: TransformIndicator 已移除，使用 Indicator<Num> 替代
+        Indicator<Num> volumeThreshold = IndicatorTransform.multiply(avgVolume, 1.05);
 
         Rule entryRule = new CrossedDownIndicatorRule(closePrice, lowerBand)
                 .and(new OverIndicatorRule(volume, volumeThreshold)); // 成交量确认
@@ -298,7 +300,7 @@ public class StrategyFactory2 {
         // 卖出规则：价格跌破下轨或者下跌超过1.5%（降低止损比例）
         Rule exitRule = new CrossedDownIndicatorRule(closePrice, lowerBand)
                 .or(new UnderIndicatorRule(closePrice,
-                        new TransformIndicator(closePrice, v -> v.multipliedBy(Ta4jNumUtil.valueOf(0.985)))));
+                        IndicatorTransform.transform(closePrice, v -> v.multipliedBy(Ta4jNumUtil.valueOf(0.985)))));
 
         return new BaseStrategy(entryRule, addExtraStopRule(exitRule,series));
     }
@@ -464,7 +466,7 @@ public class StrategyFactory2 {
         // 卖出规则：价格跌破下轨或者下跌超过2%
         Rule exitRule = new CrossedDownIndicatorRule(closePrice, lowerChannel)
                 .or(new UnderIndicatorRule(closePrice,
-                        new TransformIndicator(closePrice, v -> v.multipliedBy(Ta4jNumUtil.valueOf(0.98)))));
+                        IndicatorTransform.transform(closePrice, v -> v.multipliedBy(Ta4jNumUtil.valueOf(0.98)))));
 
         return new BaseStrategy(entryRule, addExtraStopRule(exitRule,series));
     }

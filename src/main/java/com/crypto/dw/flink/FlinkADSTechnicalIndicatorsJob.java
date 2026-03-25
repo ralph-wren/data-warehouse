@@ -1097,6 +1097,7 @@ public class FlinkADSTechnicalIndicatorsJob {
          * 
          * Bar对象包含：
          * - duration: K线周期（1分钟）
+         * - beginTime: K线开始时间（Instant）
          * - endTime: K线结束时间（Instant）
          * - openPrice: 开盘价
          * - highPrice: 最高价
@@ -1110,9 +1111,14 @@ public class FlinkADSTechnicalIndicatorsJob {
          * @return TA4J的Bar对象
          */
         public Bar toBar(Duration duration) {
+            // ta4j 0.21 变更：BaseBar 构造函数需要 beginTime 和 endTime 两个 Instant 参数
+            Instant endTime = minuteTime.toInstant();
+            Instant beginTime = endTime.minus(duration);  // 开始时间 = 结束时间 - 周期
+            
             return new BaseBar(
                 duration,
-                minuteTime.toInstant(),  // 转换为Instant（TA4J 0.18要求）
+                beginTime,  // 开始时间（ta4j 0.21 新增）
+                endTime,    // 结束时间
                 DecimalNum.valueOf(open.doubleValue()),
                 DecimalNum.valueOf(high.doubleValue()),
                 DecimalNum.valueOf(low.doubleValue()),

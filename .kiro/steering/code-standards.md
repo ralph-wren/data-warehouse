@@ -8,7 +8,7 @@ keywords: 代码规范, 架构约束, 最佳实践, 命名规范, SQL分离, 工
 ## 项目信息
 - 项目名称: 实时加密货币数据仓库
 - 技术栈: Flink 1.17.2 + Kafka + Doris + Redis
-- Java 版本: 11
+- Java 版本: 21
 - 编码: UTF-8
 - 时区: Asia/Shanghai (东八区)
 

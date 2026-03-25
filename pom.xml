@@ -255,10 +255,11 @@
         </dependency>
 
         <!-- TA4J - 技术分析指标库 -->
+        <!-- 升级到 0.21 版本，支持统一返回表示系统和更准确的性能指标 -->
         <dependency>
             <groupId>org.ta4j</groupId>
             <artifactId>ta4j-core</artifactId>
-            <version>0.18</version>
+            <version>0.21.0</version>
         </dependency>
     </dependencies>
 

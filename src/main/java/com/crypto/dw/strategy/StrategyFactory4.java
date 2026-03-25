@@ -1,6 +1,7 @@
 package com.crypto.dw.strategy;
 
 
+import com.crypto.dw.indicators.IndicatorTransform;
 import com.crypto.dw.utils.Ta4jNumUtil;
 import org.ta4j.core.*;
 import org.ta4j.core.indicators.*;
@@ -53,7 +54,7 @@ public class StrategyFactory4 {
                 .and(new OverIndicatorRule(macd, Ta4jNumUtil.valueOf(0)));
 
         // 节点3：成交量信号 (权重20%)
-        Rule volumeSignal = new OverIndicatorRule(volume, TransformIndicator.multiply(avgVolume, BigDecimal.valueOf(1.1)));
+        Rule volumeSignal = new OverIndicatorRule(volume, IndicatorTransform.multiply(avgVolume, BigDecimal.valueOf(1.1)));
 
         // 节点4：波动率信号 (权重15%)
         Rule volatilitySignal = new UnderIndicatorRule(volatility, Ta4jNumUtil.valueOf(1.5));
@@ -97,7 +98,7 @@ public class StrategyFactory4 {
         Rule condition3 = new CrossedUpIndicatorRule(macd, Ta4jNumUtil.valueOf(0));
 
         // 买入条件4：成交量放大
-        Rule condition4 = new OverIndicatorRule(volume, TransformIndicator.multiply(volumeSMA, BigDecimal.valueOf(1.1))); // 降低成交量要求为1.1倍（原为1.2倍）
+        Rule condition4 = new OverIndicatorRule(volume, IndicatorTransform.multiply(volumeSMA, BigDecimal.valueOf(1.1))); // 降低成交量要求为1.1倍（原为1.2倍）
 
         // 买入规则：满足至少2个条件（降低要求，原为3个条件）
         Rule entryRule = condition1.and(condition2)
@@ -164,7 +165,7 @@ public class StrategyFactory4 {
 
         // 决策树3：成交量树
         SMAIndicator avgVolume = new SMAIndicator(volume, 15);
-        Indicator<Num> avgVolume13 = TransformIndicator.multiply(avgVolume, BigDecimal.valueOf(1.3));
+        Indicator<Num> avgVolume13 = IndicatorTransform.multiply(avgVolume, BigDecimal.valueOf(1.3));
         Rule tree3 = new OverIndicatorRule(volume, avgVolume13);
 
         // 决策树4：波动率树
@@ -187,7 +188,7 @@ public class StrategyFactory4 {
                 return highest15.getValue(index).minus(lowest15.getValue(index));
             }
         };
-        Indicator<Num> rangeMultiplied15 = TransformIndicator.multiply(range15_2, BigDecimal.valueOf(0.4));
+        Indicator<Num> rangeMultiplied15 = IndicatorTransform.multiply(range15_2, BigDecimal.valueOf(0.4));
 
         // 创建一个CachedIndicator来正确处理两个Indicator的相加
         Indicator<Num> threshold15 = new CachedIndicator<Num>(series) {
@@ -218,7 +219,7 @@ public class StrategyFactory4 {
         // 卖出：多数树反对
         Rule exitRule = new UnderIndicatorRule(sma10, sma20)
                 .or(new OverIndicatorRule(rsi, Ta4jNumUtil.valueOf(75)))
-                .or(new UnderIndicatorRule(volume, TransformIndicator.multiply(avgVolume, BigDecimal.valueOf(0.8))));
+                .or(new UnderIndicatorRule(volume, IndicatorTransform.multiply(avgVolume, BigDecimal.valueOf(0.8))));
 
         return new BaseStrategy("随机森林策略", entryRule, addExtraStopRule(exitRule, series));
     }
@@ -246,7 +247,7 @@ public class StrategyFactory4 {
                 .and(new UnderIndicatorRule(rsi, Ta4jNumUtil.valueOf(75))); // 放宽RSI范围
         Rule boundary2 = new OverIndicatorRule(macd, Ta4jNumUtil.valueOf(0));
         Rule boundary3 = new OverIndicatorRule(closePrice, sma);
-        Rule boundary4 = new OverIndicatorRule(volume, TransformIndicator.multiply(avgVolume, BigDecimal.valueOf(1.1)));
+        Rule boundary4 = new OverIndicatorRule(volume, IndicatorTransform.multiply(avgVolume, BigDecimal.valueOf(1.1)));
         Rule boundary5 = new UnderIndicatorRule(volatility, Ta4jNumUtil.valueOf(2.0));
 
         // SVM分类：至少3个支持向量支持（多数决策）
@@ -291,10 +292,10 @@ public class StrategyFactory4 {
         // 遗忘门：决定是否忘记旧信息（降低阈值）
         StandardDeviationIndicator volatility = new StandardDeviationIndicator(closePrice, 10);
         SMAIndicator avgVolatility = new SMAIndicator(volatility, 5);
-        Rule forgetGate = new UnderIndicatorRule(volatility, TransformIndicator.multiply(avgVolatility, 1.2)); // 使用相对波动率
+        Rule forgetGate = new UnderIndicatorRule(volatility, IndicatorTransform.multiply(avgVolatility, 1.2)); // 使用相对波动率
 
         // 输入门：决定是否接受新信息（降低成交量要求）
-        Rule inputGate = new OverIndicatorRule(volume, TransformIndicator.multiply(longVolumeMemory, BigDecimal.valueOf(1.05))); // 降低成交量要求
+        Rule inputGate = new OverIndicatorRule(volume, IndicatorTransform.multiply(longVolumeMemory, BigDecimal.valueOf(1.05))); // 降低成交量要求
 
         // 输出门：决定输出什么信息（放宽条件）
         Rule outputGate = new OverIndicatorRule(shortMemory, longMemory) // 短期>长期
@@ -339,7 +340,7 @@ public class StrategyFactory4 {
                 .and(new OverIndicatorRule(closePrice, sma));
 
         // 邻居2：成交量确认 + 低波动
-        Rule neighbor2 = new OverIndicatorRule(volume, TransformIndicator.multiply(avgVolume, BigDecimal.valueOf(1.1)))
+        Rule neighbor2 = new OverIndicatorRule(volume, IndicatorTransform.multiply(avgVolume, BigDecimal.valueOf(1.1)))
                 .and(new UnderIndicatorRule(volatility, Ta4jNumUtil.valueOf(1.8)))
                 .and(new OverIndicatorRule(momentum, Ta4jNumUtil.valueOf(40)));
 
@@ -385,7 +386,7 @@ public class StrategyFactory4 {
         Rule prior2 = new OverIndicatorRule(macd, Ta4jNumUtil.valueOf(0));
         Rule prior3 = new OverIndicatorRule(roc, Ta4jNumUtil.valueOf(-0.005)); // 允许小幅下跌
         Rule prior4 = new OverIndicatorRule(closePrice, sma);
-        Rule prior5 = new OverIndicatorRule(volume, TransformIndicator.multiply(avgVolume, BigDecimal.valueOf(1.05))); // 降低成交量要求
+        Rule prior5 = new OverIndicatorRule(volume, IndicatorTransform.multiply(avgVolume, BigDecimal.valueOf(1.05))); // 降低成交量要求
 
         // 后验概率P(买入|特征)：贝叶斯更新（至少4个条件满足）
         Rule bayesBuy = prior1.and(prior2).and(prior3).and(prior4)
@@ -428,7 +429,7 @@ public class StrategyFactory4 {
         Rule leftBranch = rootNode
                 .and(new OverIndicatorRule(closePrice, sma))
                 .and(new OverIndicatorRule(macd, Ta4jNumUtil.valueOf(0)))
-                .and(new OverIndicatorRule(volume, TransformIndicator.multiply(avgVolume, BigDecimal.valueOf(1.1))));
+                .and(new OverIndicatorRule(volume, IndicatorTransform.multiply(avgVolume, BigDecimal.valueOf(1.1))));
 
         // 右分支：RSI <= 45时的决策路径（逆向策略）
         Rule rightBranch = new NotRule(rootNode)
@@ -588,7 +589,7 @@ public class StrategyFactory4 {
 
         // 探索vs利用（使用相对波动率）
         SMAIndicator avgVolatility = new SMAIndicator(volatility, 10);
-        Rule exploration = new OverIndicatorRule(volatility, TransformIndicator.multiply(avgVolatility, 1.2));
+        Rule exploration = new OverIndicatorRule(volatility, IndicatorTransform.multiply(avgVolatility, 1.2));
         Rule exploitation = new UnderIndicatorRule(volatility, avgVolatility);
 
         // 简化强化学习逻辑
@@ -654,11 +655,11 @@ public class StrategyFactory4 {
         // 高质量信号：相对低波动率 + 上升趋势（使用相对指标）
         SMAIndicator avgStability = new SMAIndicator(stability, 20);
 
-        Rule entryRule = new UnderIndicatorRule(stability, TransformIndicator.multiply(avgStability, 1.2)) // 相对低波动
+        Rule entryRule = new UnderIndicatorRule(stability, IndicatorTransform.multiply(avgStability, 1.2)) // 相对低波动
                 .and(new OverIndicatorRule(shortTrend, longTrend)) // 短期均线>长期均线
                 .or(new OverIndicatorRule(rsi, Ta4jNumUtil.valueOf(40))); // 降低RSI阈值或单独RSI条件
 
-        Rule exitRule = new OverIndicatorRule(stability, TransformIndicator.multiply(avgStability, 1.8))
+        Rule exitRule = new OverIndicatorRule(stability, IndicatorTransform.multiply(avgStability, 1.8))
                 .or(new UnderIndicatorRule(shortTrend, longTrend));
 
         return new BaseStrategy("质量因子策略", entryRule, addExtraStopRule(exitRule, series));
@@ -1073,10 +1074,10 @@ public class StrategyFactory4 {
         SMAIndicator avgStability = new SMAIndicator(stability, 20);
 
         Rule entryRule = new OverIndicatorRule(growth, avgGrowth) // 使用相对增长率
-                .and(new UnderIndicatorRule(stability, TransformIndicator.multiply(avgStability, 1.2))) // 相对稳定性
-                .and(new OverIndicatorRule(volume, TransformIndicator.multiply(avgVolume, 0.8))); // 降低成交量要求
+                .and(new UnderIndicatorRule(stability, IndicatorTransform.multiply(avgStability, 1.2))) // 相对稳定性
+                .and(new OverIndicatorRule(volume, IndicatorTransform.multiply(avgVolume, 0.8))); // 降低成交量要求
 
-        Rule exitRule = new UnderIndicatorRule(growth, TransformIndicator.multiply(avgGrowth, 0.8));
+        Rule exitRule = new UnderIndicatorRule(growth, IndicatorTransform.multiply(avgGrowth, 0.8));
 
         return new BaseStrategy("基本面评分策略", entryRule, addExtraStopRule(exitRule, series));
     }
@@ -1175,7 +1176,8 @@ public class StrategyFactory4 {
 
         // 市场情绪信号 - 修正逻辑错误
         // 创建成交量阈值指标
-        TransformIndicator volumeThreshold = TransformIndicator.multiply(avgVolume, 1.2);
+        // ta4j 0.21: TransformIndicator 已移除，使用 Indicator<Num> 替代
+        Indicator<Num> volumeThreshold = IndicatorTransform.multiply(avgVolume, 1.2);
 
         Rule bullishSentiment = new OverIndicatorRule(priceChange, Ta4jNumUtil.valueOf(0.005))  // 价格上涨
                 .or(new OverIndicatorRule(volume, volumeThreshold)); // 成交量放大
@@ -1271,11 +1273,11 @@ public class StrategyFactory4 {
         // 量子叠加：多个指标的组合判断
         // 买入条件：价格动量为正且大于0.5%（降低阈值），或者价格突破上轨
         Rule quantumBuy = new OverIndicatorRule(roc, Ta4jNumUtil.valueOf(0.005)) // 降低ROC阈值为0.5%（原为1%）
-                .or(new OverIndicatorRule(volume, TransformIndicator.multiply(avgVolume, BigDecimal.valueOf(1.1)))); // 降低成交量要求（原为1.3）
+                .or(new OverIndicatorRule(volume, IndicatorTransform.multiply(avgVolume, BigDecimal.valueOf(1.1)))); // 降低成交量要求（原为1.3）
 
         // 卖出条件：价格动量为负且小于-0.5%（降低阈值），或者价格跌破下轨
         Rule quantumSell = new UnderIndicatorRule(roc, Ta4jNumUtil.valueOf(-0.005)) // 降低ROC阈值为-0.5%（原为-1%）
-                .or(new UnderIndicatorRule(volume, TransformIndicator.multiply(avgVolume, BigDecimal.valueOf(0.9)))); // 提高成交量阈值（原为0.7）
+                .or(new UnderIndicatorRule(volume, IndicatorTransform.multiply(avgVolume, BigDecimal.valueOf(0.9)))); // 提高成交量阈值（原为0.7）
 
         // 增加止盈条件
         Indicator<Num> profitTarget = new CachedIndicator<Num>(series) {
@@ -1334,7 +1336,7 @@ public class StrategyFactory4 {
 
         // 风险控制信号 - 基于相对波动率而非绝对值
         Rule entryRule = new UnderIndicatorRule(volatility, avgVolatility); // 波动率低于平均时买入
-        Rule exitRule = new OverIndicatorRule(volatility, TransformIndicator.multiply(avgVolatility, 1.5)); // 波动率高于平均1.5倍时卖出
+        Rule exitRule = new OverIndicatorRule(volatility, IndicatorTransform.multiply(avgVolatility, 1.5)); // 波动率高于平均1.5倍时卖出
 
         return new BaseStrategy("VaR风险管理策略", entryRule, addExtraStopRule(exitRule, series));
     }
@@ -1394,10 +1396,10 @@ public class StrategyFactory4 {
         SMAIndicator avgVolatility = new SMAIndicator(volatility, 20);
         SMAIndicator avgReturns = new SMAIndicator(returns, 20);
 
-        Rule entryRule = new UnderIndicatorRule(volatility, TransformIndicator.multiply(avgVolatility, 1.2)) // 相对低波动
-                .and(new OverIndicatorRule(returns, TransformIndicator.multiply(avgReturns, 0.5))); // 相对正收益
+        Rule entryRule = new UnderIndicatorRule(volatility, IndicatorTransform.multiply(avgVolatility, 1.2)) // 相对低波动
+                .and(new OverIndicatorRule(returns, IndicatorTransform.multiply(avgReturns, 0.5))); // 相对正收益
 
-        Rule exitRule = new OverIndicatorRule(volatility, TransformIndicator.multiply(avgVolatility, 1.8)); // 相对高波动
+        Rule exitRule = new OverIndicatorRule(volatility, IndicatorTransform.multiply(avgVolatility, 1.8)); // 相对高波动
 
         return new BaseStrategy("头寸规模策略", entryRule, addExtraStopRule(exitRule, series));
     }

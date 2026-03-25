@@ -1,6 +1,7 @@
 package com.crypto.dw.strategy;
 
 
+import com.crypto.dw.indicators.IndicatorTransform;
 import com.crypto.dw.utils.Ta4jNumUtil;
 import org.ta4j.core.*;
 import org.ta4j.core.indicators.*;
@@ -335,12 +336,12 @@ public class StrategyFactory3 {
 
         // 买入规则：价格突破上轨，且成交量大于平均成交量的0.8倍（降低阈值）
         Rule entryRule = new CrossedUpIndicatorRule(closePrice, upper)
-                .and(new OverIndicatorRule(volume, new TransformIndicator(avgVolume, v -> v.multipliedBy(Ta4jNumUtil.valueOf(0.8)))));
+                .and(new OverIndicatorRule(volume, IndicatorTransform.transform(avgVolume, v -> v.multipliedBy(Ta4jNumUtil.valueOf(0.8)))));
 
         // 卖出规则：价格跌破下轨，或者价格下跌超过2%
         Rule exitRule = new CrossedDownIndicatorRule(closePrice, lower)
                 .or(new UnderIndicatorRule(closePrice,
-                        new TransformIndicator(closePrice, v -> v.multipliedBy(Ta4jNumUtil.valueOf(0.98)))));
+                        IndicatorTransform.transform(closePrice, v -> v.multipliedBy(Ta4jNumUtil.valueOf(0.98)))));
 
         return new BaseStrategy(entryRule, addExtraStopRule(exitRule, series));
     }
@@ -1233,8 +1234,8 @@ public class StrategyFactory3 {
         SMAIndicator avgKurtosis = new SMAIndicator(kurtosis, 10);
 
         // 使用相对峰度而非绝对阈值
-        Rule entryRule = new OverIndicatorRule(kurtosis, TransformIndicator.multiply(avgKurtosis, 1.1)); // 峰度高于平均10%
-        Rule exitRule = new UnderIndicatorRule(kurtosis, TransformIndicator.multiply(avgKurtosis, 0.9)); // 峰度低于平均10%
+        Rule entryRule = new OverIndicatorRule(kurtosis, IndicatorTransform.multiply(avgKurtosis, 1.1)); // 峰度高于平均10%
+        Rule exitRule = new UnderIndicatorRule(kurtosis, IndicatorTransform.multiply(avgKurtosis, 0.9)); // 峰度低于平均10%
 
         return new BaseStrategy("峰度策略", entryRule, addExtraStopRule(exitRule, series));
     }
@@ -1400,8 +1401,9 @@ public class StrategyFactory3 {
 
         // 改进的交易逻辑：使用更灵活的条件
         // 创建回归线的上下阈值
-        TransformIndicator upperThreshold = TransformIndicator.multiply(regression, 1.01);
-        TransformIndicator lowerThreshold = TransformIndicator.multiply(regression, 0.99);
+        // ta4j 0.21: TransformIndicator 已移除，使用 Indicator<Num> 替代
+        Indicator<Num> upperThreshold = IndicatorTransform.multiply(regression, 1.01);
+        Indicator<Num> lowerThreshold = IndicatorTransform.multiply(regression, 0.99);
 
         // 买入信号：价格相对于回归线有足够的向上偏差
         Rule entryRule = new OverIndicatorRule(closePrice, upperThreshold); // 高于回归线1%
@@ -1641,7 +1643,8 @@ public class StrategyFactory3 {
 
         // 买入信号：价格突破均线且波动率适中（进一步优化）
         // 创建成交量阈值指标 - 降低成交量要求
-        TransformIndicator volumeThreshold2 = TransformIndicator.multiply(avgVolume, 1.05);
+        // ta4j 0.21: TransformIndicator 已移除，使用 Indicator<Num> 替代
+        Indicator<Num> volumeThreshold2 = IndicatorTransform.multiply(avgVolume, 1.05);
         SMAIndicator avgATR = new SMAIndicator(atr, 10);
 
         Rule entryRule = new OverIndicatorRule(closePrice, sma)
@@ -1665,7 +1668,7 @@ public class StrategyFactory3 {
                 .and(new OverIndicatorRule(closePrice, sma));
 
         // 卖出信号：趋势强度弱于平均或价格下跌
-        Rule exitRule = new UnderIndicatorRule(adx, TransformIndicator.multiply(avgADX, 0.8))
+        Rule exitRule = new UnderIndicatorRule(adx, IndicatorTransform.multiply(avgADX, 0.8))
                 .or(new UnderIndicatorRule(closePrice, sma));
 
         return new BaseStrategy("趋势强度策略", entryRule, addExtraStopRule(exitRule, series));

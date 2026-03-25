@@ -1,6 +1,7 @@
 package com.crypto.dw.strategy;
 
 import com.crypto.dw.indicator.CustomIndicators;
+import com.crypto.dw.indicators.IndicatorTransform;
 import com.crypto.dw.utils.Ta4jNumUtil;
 import org.ta4j.core.*;
 import org.ta4j.core.indicators.*;
@@ -986,7 +987,7 @@ public class StrategyFactory1 {
 
         // 简化的突破规则：只需要价格突破，不强制要求成交量确认
         Rule upperBreakoutRule = new OverIndicatorRule(closePrice,
-                new TransformIndicator(highestHigh,
+                IndicatorTransform.transform(highestHigh,
                         v -> v.multipliedBy(Ta4jNumUtil.valueOf(1.0 - breakoutThreshold))));
 
         // 添加额外的入场条件：价格在EMA之上
@@ -1345,7 +1346,7 @@ public class StrategyFactory1 {
         Rule macdCrossRule = new CrossedUpIndicatorRule(macd, signal);
         Rule histogramCrossRule = new CrossedUpIndicatorRule(histogram, Ta4jNumUtil.zero());
         Rule priceNearLowerBand = new UnderIndicatorRule(closePrice,
-                new TransformIndicator(lowerBand, v -> v.multipliedBy(Ta4jNumUtil.valueOf(1.02)))); // 价格在下轨2%以内
+                IndicatorTransform.transform(lowerBand, v -> v.multipliedBy(Ta4jNumUtil.valueOf(1.02)))); // 价格在下轨2%以内
 
         Rule entryRule = new OrRule(macdCrossRule, histogramCrossRule)
                 .and(priceNearLowerBand)
@@ -1359,7 +1360,7 @@ public class StrategyFactory1 {
         Rule macdDeathCrossRule = new CrossedDownIndicatorRule(macd, signal);
         Rule histogramDeathCrossRule = new CrossedDownIndicatorRule(histogram, Ta4jNumUtil.zero());
         Rule priceNearUpperBand = new OverIndicatorRule(closePrice,
-                new TransformIndicator(upperBand, v -> v.multipliedBy(Ta4jNumUtil.valueOf(0.98)))); // 价格在上轨2%以内
+                IndicatorTransform.transform(upperBand, v -> v.multipliedBy(Ta4jNumUtil.valueOf(0.98)))); // 价格在上轨2%以内
 
         Rule exitRule = new OrRule(macdDeathCrossRule, histogramDeathCrossRule)
                 .or(priceNearUpperBand)
@@ -1576,7 +1577,7 @@ public class StrategyFactory1 {
 
         // 买入规则：价格上穿SMA且波动率扩大（ATR上升）
         Rule entryRule = new CrossedUpIndicatorRule(closePrice, sma)
-                .and(new OverIndicatorRule(atr, new TransformIndicator(
+                .and(new OverIndicatorRule(atr, IndicatorTransform.transform(
                         new SMAIndicator(atr, 5), // ATR的5周期均值
                         v -> v.multipliedBy(Ta4jNumUtil.valueOf(0.9)) // ATR > 0.9 * SMA(ATR, 5)
                 )));
@@ -3004,7 +3005,7 @@ public class StrategyFactory1 {
         EMAIndicator ema2 = new EMAIndicator(ema1, emaPeriod);
 
         // 4. 创建比率指标 (EMA1/EMA2)
-        Indicator<Num> emaRatio = new TransformIndicator(
+        Indicator<Num> emaRatio = IndicatorTransform.transform(
                 new CachedIndicator<Num>(series) {
                     @Override
                     public int getCountOfUnstableBars() {

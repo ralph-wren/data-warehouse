@@ -33,9 +33,9 @@ case "$ACTION" in
         
     restart)
         echo "重启 Doris 集群..."
-        $0 stop
+        docker-compose -f docker-compose-doris.yml down
         sleep 3
-        $0 start
+        docker-compose -f docker-compose-doris.yml up -d
         ;;
         
     *)

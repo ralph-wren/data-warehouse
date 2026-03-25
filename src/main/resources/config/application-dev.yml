@@ -108,7 +108,7 @@ redis:
 flink:
   # 集群配置
   cluster:
-    mode: remote  # 运行模式: local（本地模式）, remote（远程集群）
+    mode: local  # 运行模式: local（本地模式）, remote（远程集群）
     remote:
       host: localhost  # 远程集群 JobManager 地址
       port: 8081  # 远程集群 JobManager 端口
@@ -138,7 +138,10 @@ flink:
       enabled: false  # 默认关闭；只有在明显反压、barrier 对齐慢时再开启
       aligned-timeout-ms: 0  # 0 表示一直走对齐 checkpoint
       max-subtasks-per-channel-state-file: 5  # 控制 channel state 文件数量，避免过碎
-  
+
+  metrics:
+    enable: true
+
   # 状态后端配置
   state:
     backend: rocksdb  # 状态后端类型：rocksdb (生产推荐) / hashmap (开发测试)

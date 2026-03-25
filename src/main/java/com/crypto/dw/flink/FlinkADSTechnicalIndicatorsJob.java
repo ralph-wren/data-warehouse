@@ -167,7 +167,7 @@ public class FlinkADSTechnicalIndicatorsJob {
         indicatorResults
             .map(result -> result.toJson())  // 转换为JSON字符串
             .sinkTo(dorisSinkFactory.createDorisSink(
-                null,                           // database从环境变量/配置文件获取
+                "crypto_dw",                           // database从环境变量/配置文件获取
                 "ads_technical_indicators",     // 表名
                 "ads_technical_indicator"       // Label前缀（用于去重）
             ))

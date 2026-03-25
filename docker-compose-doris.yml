@@ -30,6 +30,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 30
+    mem_limit: 2g
+    mem_reservation: 2g
 
   doris-be:
     image: apache/doris:be-3.0.7-rc01-1204
@@ -56,7 +58,8 @@ services:
       doris-fe:
         condition: service_healthy
     restart: unless-stopped
-
+    mem_limit: 2g
+    mem_reservation: 2g
 networks:
   doris-net:
     driver: bridge

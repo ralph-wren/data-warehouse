@@ -202,7 +202,10 @@ public class FlinkEnvironmentFactory {
         configureWebUI(flinkConfig, webUIPort);
         
         // 配置 Prometheus Metrics
-        configureMetrics(flinkConfig, jobName);
+        if (config.getBoolean("flink.metrics.enable",true)){
+            configureMetrics(flinkConfig, jobName);
+        }
+
 
         // 配置执行层参数（运行模式、重启策略等）
         configureExecutionOptions(flinkConfig);

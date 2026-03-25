@@ -247,7 +247,7 @@ public class FlinkADSArbitrageJob {
         // 写入 Doris
         DorisSinkFactory dorisSinkFactory = new DorisSinkFactory(config);
         DorisSink<String> dorisSink = dorisSinkFactory.createDorisSink(
-            "crypto_dw",
+            config.getString("doris.database"),
             "ads_arbitrage_opportunities",
             "ads-arbitrage"
         );

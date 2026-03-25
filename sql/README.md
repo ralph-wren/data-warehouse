@@ -6,13 +6,42 @@
 
 ```
 sql/
-├── flink/              # Flink SQL 文件
-│   ├── dwd_insert.sql  # DWD 层数据插入
-│   └── dws_1min_insert.sql  # DWS 1分钟窗口聚合
-└── README.md           # 本文件
+├── flink/                          # Flink SQL 文件
+│   ├── ddl/                        # DDL 定义文件
+│   │   ├── kafka_source.sql        # Kafka Source 表定义
+│   │   ├── doris_source.sql        # Doris Source 表定义
+│   │   └── doris_sink.sql          # Doris Sink 表定义
+│   ├── ods_insert.sql              # ODS 层数据插入
+│   ├── dwd_insert.sql              # DWD 层数据插入
+│   ├── dws_1min_insert.sql         # DWS 1分钟窗口聚合
+│   └── ads_realtime_metrics_insert.sql  # ADS 实时指标计算
+├── doris/                          # Doris 建表 SQL
+│   ├── create_ads_market_monitor_table.sql  # ADS 市场监控表
+│   └── create_ads_arbitrage_table.sql       # ADS 套利机会表
+└── README.md                       # 本文件
 ```
 
 ## Flink SQL 文件
+
+### ods_insert.sql
+
+**功能**: ODS 层数据插入
+
+**数据流转**: Kafka → ODS 作业 → Doris ODS 表
+
+**主要功能**:
+- 从 Kafka 读取原始行情数据
+- 添加数据源标识（data_source）
+- 添加数据摄入时间（ingest_time）
+- 写入 Doris ODS 层
+
+**使用示例**:
+```java
+String sql = SqlFileLoader.loadSql("sql/flink/ods_insert.sql");
+tableEnv.executeSql(sql);
+```
+
+---
 
 ### dwd_insert.sql
 
@@ -51,6 +80,29 @@ tableEnv.executeSql(sql);
 **使用示例**:
 ```java
 String sql = SqlFileLoader.loadSql("sql/flink/dws_1min_insert.sql");
+tableEnv.executeSql(sql);
+```
+
+---
+
+### ads_realtime_metrics_insert.sql
+
+**功能**: ADS 实时指标计算
+
+**数据流转**: Doris DWS → ADS 作业 → Doris ADS 表
+
+**主要功能**:
+- 从 DWS 层读取 1分钟 K 线数据
+- 使用 LAG 函数计算历史价格
+- 计算多时间窗口涨跌幅（1分钟/5分钟/15分钟/1小时）
+- 计算成交量指标（使用窗口函数聚合）
+- 计算波动率指标（使用标准差）
+- 判断价格趋势（上涨/下跌/震荡）
+- 写入 Doris ADS 层
+
+**使用示例**:
+```java
+String sql = SqlFileLoader.loadSql("sql/flink/ads_realtime_metrics_insert.sql");
 tableEnv.executeSql(sql);
 ```
 
@@ -196,7 +248,6 @@ ls -lh target/classes/sql/flink/
 
 ### 计划添加的目录
 
-- `sql/doris/` - Doris 建表 SQL
 - `sql/init/` - 初始化数据 SQL
 - `sql/test/` - 测试 SQL
 
@@ -205,9 +256,11 @@ ls -lh target/classes/sql/flink/
 ## 相关文档
 
 - [202603241425-SQL分离-将SQL语句从代码中分离到独立文件.md](../docs/202603241425-SQL分离-将SQL语句从代码中分离到独立文件.md)
+- [202603241433-SQL全面分离-所有SQL语句模板化管理.md](../docs/202603241433-SQL全面分离-所有SQL语句模板化管理.md)
+- [202603251900-SQL分离完善-ODS和ADS层SQL文件化.md](../docs/202603251900-SQL分离完善-ODS和ADS层SQL文件化.md)
 - [SqlFileLoader.java](../src/main/java/com/crypto/dw/utils/SqlFileLoader.java)
 
 ---
 
-**最后更新**: 2026-03-24 14:25  
+**最后更新**: 2026-03-25 19:00  
 **维护者**: Kiro AI Assistant

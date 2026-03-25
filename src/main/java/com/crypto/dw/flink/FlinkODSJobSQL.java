@@ -4,6 +4,7 @@ import com.crypto.dw.config.ConfigLoader;
 import com.crypto.dw.flink.factory.FlinkEnvironmentFactory;
 import com.crypto.dw.flink.factory.FlinkTableFactory;
 import com.crypto.dw.flink.schema.TableSchemas;
+import com.crypto.dw.utils.SqlFileLoader;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.flink.table.api.bridge.java.StreamTableEnvironment;
 import org.slf4j.Logger;
@@ -64,8 +65,10 @@ public class FlinkODSJobSQL {
         );
         tableEnv.executeSql(dorisSinkDDL);
 
-        // 执行 INSERT INTO 语句
-        String insertSQL = createInsertSQL();
+        // 执行 INSERT INTO 语句（从外部 SQL 文件加载）
+        // 重构说明: SQL 语句已分离到独立文件，便于维护和版本控制
+        logger.info("Loading INSERT SQL from file...");
+        String insertSQL = SqlFileLoader.loadSql("sql/flink/ods_insert.sql");
         logger.info("Executing INSERT SQL...");
 
         logger.info("==========================================");
@@ -79,28 +82,5 @@ public class FlinkODSJobSQL {
     // Environment 工厂类位置: com.crypto.dw.flink.factory.FlinkEnvironmentFactory
     // Table 工厂类位置: com.crypto.dw.flink.factory.FlinkTableFactory
     // Schema 定义位置: com.crypto.dw.flink.schema.TableSchemas
-
-    /**
-     * 创建 INSERT INTO SQL
-     * <p>
-     * 从 Kafka 读取数据,添加 data_source 和 ingest_time 字段后写入 Doris ODS 层
-     */
-    private static String createInsertSQL() {
-        return "INSERT INTO doris_ods_sink\n" +
-                "SELECT \n" +
-                "    inst_id,\n" +
-                "    `timestamp`,\n" +
-                "    last_price,\n" +
-                "    bid_price,\n" +
-                "    ask_price,\n" +
-                "    bid_size,\n" +
-                "    ask_size,\n" +
-                "    volume_24h,\n" +
-                "    high_24h,\n" +
-                "    low_24h,\n" +
-                "    open_24h,\n" +
-                "    'OKX' as data_source,\n" +
-                "    UNIX_TIMESTAMP() * 1000 as ingest_time\n" +
-                "FROM kafka_source";
-    }
+    // SQL 文件位置: sql/flink/ods_insert.sql
 }

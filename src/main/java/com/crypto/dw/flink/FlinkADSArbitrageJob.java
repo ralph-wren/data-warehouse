@@ -95,12 +95,6 @@ public class FlinkADSArbitrageJob {
             webPort
         );
         
-        // 性能优化：设置合理的并行度
-        // 说明：根据 Kafka 分区数和 CPU 核心数设置
-        int parallelism = config.getInt("flink.execution.parallelism", 4);
-        env.setParallelism(parallelism);
-        logger.info("并行度: {}", parallelism);
-        
         // 使用工厂类创建 Kafka Source
         // 重要：套利作业需要同时读取现货和合约数据，使用不同的 Consumer Group
         KafkaSourceFactory kafkaSourceFactory = new KafkaSourceFactory(config);

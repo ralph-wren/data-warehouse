@@ -145,7 +145,7 @@ flink:
     checkpoint-dir: file:///c/Users/ralph/IdeaProject/data-warehouse/rocksdb-dir/checkpoints  # Checkpoint 存储目录
     savepoint-dir: file:///c/Users/ralph/IdeaProject/data-warehouse/rocksdb-dir/savepoints  # Savepoint 存储目录
     incremental: true  # RocksDB 增量 Checkpoint，减少状态快照体积
-    local-recovery: true  # 启用本地恢复，加快失败恢复速度
+    local-recovery: false  # 禁用本地恢复，避免 Windows 路径过长问题
     
     # RocksDB 性能优化配置
     # 解决 "arenaBlockSize > mutableLimit" 警告，避免频繁刷新 memtable

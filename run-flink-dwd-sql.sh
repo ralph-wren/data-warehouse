@@ -7,6 +7,9 @@ echo "Running Flink DWD Job (Flink SQL)"
 echo "=========================================="
 echo ""
 
+# 设置 Flink 环境变量 (避免 Windows 路径长度限制)
+source ./set-flink-env.sh
+
 # 加载环境变量
 if [ -f .env ]; then
     export $(cat .env | grep -v '^#' | xargs)

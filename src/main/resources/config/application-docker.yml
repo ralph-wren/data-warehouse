@@ -130,6 +130,15 @@ flink:
     savepoint-dir: file:///opt/flink/savepoints  # Savepoint 存储目录
     incremental: true  # RocksDB 增量 Checkpoint，减少状态快照体积
     local-recovery: true  # 启用本地恢复，加快失败恢复速度
+    
+    # RocksDB 性能优化配置
+    # 解决 "arenaBlockSize > mutableLimit" 警告，避免频繁刷新 memtable
+    rocksdb:
+      managed-memory-size: 512m  # TaskManager 托管内存大小（远程集群模式）
+      writebuffer-size: 64m  # 单个 ColumnFamily 的写缓冲区大小（默认 64MB）
+      writebuffer-count: 3  # 写缓冲区数量（默认 2，增加到 3 提升写入性能）
+      block-cache-size: 256m  # 块缓存大小，用于读取优化
+      max-background-jobs: 4  # 后台压缩和刷新任务数量
 
   # 重启策略配置
   restart:

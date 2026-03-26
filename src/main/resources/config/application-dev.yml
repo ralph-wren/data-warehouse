@@ -108,7 +108,7 @@ redis:
 flink:
   # 集群配置
   cluster:
-    mode: remote  # 运行模式: local（本地模式）, remote（远程集群）
+    mode: local  # 运行模式: local（本地模式）, remote（远程集群）
     remote:
       host: localhost  # 远程集群 JobManager 地址
       port: 8081  # 远程集群 JobManager 端口
@@ -142,10 +142,19 @@ flink:
   # 状态后端配置
   state:
     backend: rocksdb  # 状态后端类型：rocksdb (生产推荐) / hashmap (开发测试)
-    checkpoint-dir: file:///tmp/flink-checkpoints  # Checkpoint 存储目录
-    savepoint-dir: file:///tmp/flink-savepoints  # Savepoint 存储目录
+    checkpoint-dir: file:///c/Users/ralph/IdeaProject/data-warehouse/rocksdb-dir/checkpoints  # Checkpoint 存储目录
+    savepoint-dir: file:///c/Users/ralph/IdeaProject/data-warehouse/rocksdb-dir/savepoints  # Savepoint 存储目录
     incremental: true  # RocksDB 增量 Checkpoint，减少状态快照体积
     local-recovery: true  # 启用本地恢复，加快失败恢复速度
+    
+    # RocksDB 性能优化配置
+    # 解决 "arenaBlockSize > mutableLimit" 警告，避免频繁刷新 memtable
+    rocksdb:
+      managed-memory-size: 512m  # TaskManager 托管内存大小（本地模式）
+      writebuffer-size: 64m  # 单个 ColumnFamily 的写缓冲区大小（默认 64MB）
+      writebuffer-count: 3  # 写缓冲区数量（默认 2，增加到 3 提升写入性能）
+      block-cache-size: 256m  # 块缓存大小，用于读取优化
+      max-background-jobs: 4  # 后台压缩和刷新任务数量
 
   # 重启策略配置
   restart:
@@ -175,6 +184,8 @@ flink:
       dws-1min: 8084 # DWS 1分钟作业端口
       dws-5min: 8085 # DWS 5分钟作业端口
 
+  metrics:
+    enable: false
 # 应用配置
 application:
   # 日志配置

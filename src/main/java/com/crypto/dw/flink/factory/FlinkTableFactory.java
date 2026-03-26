@@ -113,7 +113,7 @@ public class FlinkTableFactory {
         String watermark = "";
         if (withWatermark) {
             watermark = ",\n" +
-                    "    event_time AS TO_TIMESTAMP(FROM_UNIXTIME(`timestamp` / 1000)),\n" +
+                    "    event_time AS TO_TIMESTAMP(FROM_UNIXTIME(`ts` / 1000)),\n" +
                     "    WATERMARK FOR event_time AS event_time - INTERVAL '5' SECOND\n";
         } else {
             watermark = "\n";

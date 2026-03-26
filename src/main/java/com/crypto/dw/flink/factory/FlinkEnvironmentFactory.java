@@ -202,7 +202,9 @@ public class FlinkEnvironmentFactory {
         configureWebUI(flinkConfig, webUIPort);
         
         // 配置 Prometheus Metrics
-        configureMetrics(flinkConfig, jobName);
+        if (config.getBoolean("flink.metrics.enable")){
+            configureMetrics(flinkConfig, jobName);
+        }
 
         // 配置执行层参数（运行模式、重启策略等）
         configureExecutionOptions(flinkConfig);
@@ -526,6 +528,57 @@ public class FlinkEnvironmentFactory {
                 "state.backend.local-recovery",
                 config.getBoolean("flink.state.local-recovery", false)
             );
+        }
+
+        // RocksDB 性能优化配置
+        // 解决 "arenaBlockSize > mutableLimit" 警告，避免频繁刷新 memtable
+        if ("rocksdb".equalsIgnoreCase(normalizedBackend)) {
+            // TaskManager 托管内存大小
+            String managedMemorySize = config.getString("flink.state.rocksdb.managed-memory-size", "").trim();
+            if (!managedMemorySize.isEmpty()) {
+                flinkConfig.setString("taskmanager.memory.managed.size", managedMemorySize);
+            }
+
+            // 写缓冲区大小 (单个 ColumnFamily)
+            String writeBufferSize = config.getString("flink.state.rocksdb.writebuffer-size", "").trim();
+            if (!writeBufferSize.isEmpty()) {
+                flinkConfig.setString("state.backend.rocksdb.writebuffer.size", writeBufferSize);
+            }
+
+            // 写缓冲区数量
+            if (config.get("flink.state.rocksdb.writebuffer-count") != null) {
+                int writeBufferCount = config.getInt("flink.state.rocksdb.writebuffer-count", 2);
+                flinkConfig.setInteger("state.backend.rocksdb.writebuffer.count", writeBufferCount);
+            }
+
+            // 块缓存大小 (用于读取优化)
+            String blockCacheSize = config.getString("flink.state.rocksdb.block-cache-size", "").trim();
+            if (!blockCacheSize.isEmpty()) {
+                flinkConfig.setString("state.backend.rocksdb.block.cache-size", blockCacheSize);
+            }
+
+            // 后台压缩和刷新任务数量
+            if (config.get("flink.state.rocksdb.max-background-jobs") != null) {
+                int maxBackgroundJobs = config.getInt("flink.state.rocksdb.max-background-jobs", 2);
+                flinkConfig.setInteger("state.backend.rocksdb.thread.num", maxBackgroundJobs);
+            }
+
+            logger.info("RocksDB 性能优化配置:");
+            if (!managedMemorySize.isEmpty()) {
+                logger.info("  managed-memory-size: {}", managedMemorySize);
+            }
+            if (!writeBufferSize.isEmpty()) {
+                logger.info("  writebuffer-size: {}", writeBufferSize);
+            }
+            if (config.get("flink.state.rocksdb.writebuffer-count") != null) {
+                logger.info("  writebuffer-count: {}", config.getInt("flink.state.rocksdb.writebuffer-count", 2));
+            }
+            if (!blockCacheSize.isEmpty()) {
+                logger.info("  block-cache-size: {}", blockCacheSize);
+            }
+            if (config.get("flink.state.rocksdb.max-background-jobs") != null) {
+                logger.info("  max-background-jobs: {}", config.getInt("flink.state.rocksdb.max-background-jobs", 2));
+            }
         }
 
         logger.info("状态后端配置:");

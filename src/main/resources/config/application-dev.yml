@@ -5,7 +5,8 @@
 okx:
   # WebSocket API 配置
   websocket:
-    url: wss://ws.okx.com:8443/ws/v5/public
+    # K线数据使用 business 频道（从 2023年6月20日起，K线数据迁移到 business 频道）
+    url: wss://ws.okx.com:8443/ws/v5/business
     reconnect:
       max-retries: 10
       initial-delay: 1000

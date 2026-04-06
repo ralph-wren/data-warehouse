@@ -176,7 +176,7 @@
             <version>8.0.33</version>
         </dependency>
 
-        <!-- Logging - 添加 Log4j2 支持 -->
+        <!-- Logging - 使用 Log4j2（Flink 推荐） -->
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
@@ -200,14 +200,6 @@
             <groupId>org.apache.logging.log4j</groupId>
             <artifactId>log4j-core</artifactId>
             <version>${log4j.version}</version>
-        </dependency>
-
-        <!-- Logback 作为备选 -->
-        <dependency>
-            <groupId>ch.qos.logback</groupId>
-            <artifactId>logback-classic</artifactId>
-            <version>${logback.version}</version>
-            <scope>provided</scope>
         </dependency>
 
         <!-- Lombok (optional, for reducing boilerplate) -->
@@ -314,12 +306,6 @@
                     <includeProjectDependencies>true</includeProjectDependencies>
                     <includePluginDependencies>false</includePluginDependencies>
                     <classpathScope>test</classpathScope>  <!-- test scope 包含所有依赖 -->
-                    <systemProperties>
-                        <systemProperty>
-                            <key>log4j.configuration</key>
-                            <value>log4j2.properties</value>
-                        </systemProperty>
-                    </systemProperties>
                 </configuration>
             </plugin>
 

@@ -44,7 +44,7 @@ import java.util.Set;
  * 技术特性：
  * 1. 双流 Join：现货价格流 + 合约价格流
  * 2. Interval Join：时间窗口内的流关联
- * 3. 广播流：从 Redis 读取交易对白名单
+ * 3. 广播流：从 Redis 读取交易对黑名单
  * 4. 维度关联：使用广播状态过滤数据
  * 5. 性能优化：异步 IO、状态管理、背压控制
  * 
@@ -54,7 +54,7 @@ import java.util.Set;
  *                                   ├─→ Interval Join ──→ 计算套利空间 ──┐
  * Kafka(合约 crypto-ticker-swap) ──┘                                   │
  *                                                                      ├─→ 广播 Join ──→ 过滤 ──→ Doris
- * Redis(白名单) ──→ 广播流 ────────────────────────────────────────────┘
+ * Redis(黑名单) ──→ 广播流 ────────────────────────────────────────────┘
  * </pre>
  * 
  * 性能考虑：
@@ -79,7 +79,7 @@ public class FlinkADSArbitrageJob {
     public static void main(String[] args) throws Exception {
         logger.info("==========================================");
         logger.info("Flink ADS Arbitrage Job (复杂流处理)");
-        logger.info("双流 Join + 广播流 + Redis 维度关联");
+        logger.info("双流 Join + 广播流 + Redis 黑名单过滤");
         logger.info("==========================================");
         
         // 加载配置
@@ -201,36 +201,36 @@ public class FlinkADSArbitrageJob {
         
         logger.info("✓ Interval Join 配置成功（时间窗口: ±10 秒）");
         
-        // ========== 步骤 4: 从 Redis 读取交易对白名单（广播流）==========
-        // 说明：使用广播流将白名单数据分发到所有并行实例
+        // ========== 步骤 4: 从 Redis 读取交易对黑名单（广播流）==========
+        // 说明：使用广播流将黑名单数据分发到所有并行实例
         // 优势：避免每条数据都查询 Redis，大幅提升性能
-        logger.info("创建广播流（从 Redis 读取白名单）...");
+        logger.info("创建广播流（从 Redis 读取黑名单）...");
         
         // 定义广播状态描述符
-        MapStateDescriptor<String, Boolean> whitelistStateDescriptor = new MapStateDescriptor<>(
-            "whitelist-state",
+        MapStateDescriptor<String, Boolean> blacklistStateDescriptor = new MapStateDescriptor<>(
+            "blacklist-state",
             BasicTypeInfo.STRING_TYPE_INFO,
             BasicTypeInfo.BOOLEAN_TYPE_INFO
         );
         
-        // 创建广播流：定期从 Redis 读取白名单
-        DataStream<Tuple2<String, Boolean>> whitelistSource = env
-            .addSource(new RedisWhitelistSource(config))
-            .name("Redis Whitelist Source");
+        // 创建广播流：定期从 Redis 读取黑名单
+        DataStream<Tuple2<String, Boolean>> blacklistSource = env
+            .addSource(new RedisBlacklistSource(config))
+            .name("Redis Blacklist Source");
         
-        BroadcastStream<Tuple2<String, Boolean>> whitelistBroadcast = whitelistSource
-            .broadcast(whitelistStateDescriptor);
+        BroadcastStream<Tuple2<String, Boolean>> blacklistBroadcast = blacklistSource
+            .broadcast(blacklistStateDescriptor);
         
         logger.info("✓ 广播流创建成功");
         
         // ========== 步骤 5: 使用广播状态过滤套利机会 ==========
-        // 说明：只保留白名单中的交易对
-        logger.info("配置广播 Join（过滤白名单）...");
+        // 说明：过滤掉黑名单中的交易对
+        logger.info("配置广播 Join（过滤黑名单）...");
         
         DataStream<ArbitrageOpportunity> filteredStream = arbitrageStream
-            .connect(whitelistBroadcast)
-            .process(new WhitelistFilter(whitelistStateDescriptor))
-            .name("Whitelist Filter");
+            .connect(blacklistBroadcast)
+            .process(new BlacklistFilter(blacklistStateDescriptor))
+            .name("Blacklist Filter");
         
         logger.info("✓ 广播 Join 配置成功");
         
@@ -343,25 +343,25 @@ public class FlinkADSArbitrageJob {
     }
     
     /**
-     * 白名单过滤器 - 广播处理函数
+     * 黑名单过滤器 - 广播处理函数
      * 
      * 功能：
-     * 1. 接收广播的白名单数据
+     * 1. 接收广播的黑名单数据
      * 2. 更新广播状态
      * 3. 使用广播状态过滤数据流
      * 
      * 性能优化：
      * - 使用广播状态，避免每条数据查询 Redis
-     * - 所有并行实例共享白名单数据
-     * - 定期更新白名单，保持数据新鲜度
+     * - 所有并行实例共享黑名单数据
+     * - 定期更新黑名单，保持数据新鲜度
      */
-    public static class WhitelistFilter 
+    public static class BlacklistFilter 
             extends BroadcastProcessFunction<ArbitrageOpportunity, Tuple2<String, Boolean>, ArbitrageOpportunity> {
         
-        private final MapStateDescriptor<String, Boolean> whitelistStateDescriptor;
+        private final MapStateDescriptor<String, Boolean> blacklistStateDescriptor;
         
-        public WhitelistFilter(MapStateDescriptor<String, Boolean> whitelistStateDescriptor) {
-            this.whitelistStateDescriptor = whitelistStateDescriptor;
+        public BlacklistFilter(MapStateDescriptor<String, Boolean> blacklistStateDescriptor) {
+            this.blacklistStateDescriptor = blacklistStateDescriptor;
         }
         
         @Override
@@ -371,55 +371,55 @@ public class FlinkADSArbitrageJob {
                 Collector<ArbitrageOpportunity> out) throws Exception {
             
             // 读取广播状态
-            ReadOnlyBroadcastState<String, Boolean> whitelistState = 
-                ctx.getBroadcastState(whitelistStateDescriptor);
+            ReadOnlyBroadcastState<String, Boolean> blacklistState = 
+                ctx.getBroadcastState(blacklistStateDescriptor);
             
-            // 检查是否在白名单中
-            Boolean isWhitelisted = whitelistState.get(opportunity.symbol);
+            // 检查是否在黑名单中
+            Boolean isBlacklisted = blacklistState.get(opportunity.symbol);
             
-            if (isWhitelisted != null && isWhitelisted) {
-                // 在白名单中，输出数据
-                out.collect(opportunity);
+            if (isBlacklisted != null && isBlacklisted) {
+                // 在黑名单中，过滤掉
+                logger.debug("过滤黑名单交易对: {}", opportunity.symbol);
             } else {
-                // 不在白名单中，过滤掉
-                logger.debug("过滤非白名单交易对: {}", opportunity.symbol);
+                // 不在黑名单中，输出数据
+                out.collect(opportunity);
             }
         }
         
         @Override
         public void processBroadcastElement(
-                Tuple2<String, Boolean> whitelistEntry,
+                Tuple2<String, Boolean> blacklistEntry,
                 Context ctx,
                 Collector<ArbitrageOpportunity> out) throws Exception {
             
             // 更新广播状态
-            BroadcastState<String, Boolean> whitelistState = 
-                ctx.getBroadcastState(whitelistStateDescriptor);
+            BroadcastState<String, Boolean> blacklistState = 
+                ctx.getBroadcastState(blacklistStateDescriptor);
             
-            whitelistState.put(whitelistEntry.f0, whitelistEntry.f1);
+            blacklistState.put(blacklistEntry.f0, blacklistEntry.f1);
             
-            logger.info("更新白名单: {} = {}", whitelistEntry.f0, whitelistEntry.f1);
+            logger.info("更新黑名单: {} = {}", blacklistEntry.f0, blacklistEntry.f1);
         }
     }
     
     /**
-     * Redis 白名单数据源
+     * Redis 黑名单数据源
      * 
      * 功能：
-     * 1. 定期从 Redis 读取交易对白名单
+     * 1. 定期从 Redis 读取交易对黑名单
      * 2. 发送到广播流
      * 
      * Redis 数据结构：
-     * - Key: "crypto:whitelist"
+     * - Key: "crypto:blacklist"
      * - Type: Set
-     * - Value: ["BTC-USDT", "ETH-USDT", "SOL-USDT", ...]
+     * - Value: ["SHIB-USDT", "DOGE-USDT", ...]（需要过滤的交易对）
      * 
      * 性能优化：
      * - 使用 RedisConnectionManager 管理连接池
      * - 定期刷新（每 60 秒），减少 Redis 压力
      * - 异常处理，保证稳定性
      */
-    public static class RedisWhitelistSource 
+    public static class RedisBlacklistSource 
             extends RichMapFunction<Long, Tuple2<String, Boolean>> 
             implements org.apache.flink.streaming.api.functions.source.SourceFunction<Tuple2<String, Boolean>> {
         
@@ -431,9 +431,9 @@ public class FlinkADSArbitrageJob {
         private static final long REFRESH_INTERVAL_MS = 60000;
         
         // Redis Key
-        private static final String WHITELIST_KEY = "crypto:whitelist";
+        private static final String BLACKLIST_KEY = "crypto:blacklist";
         
-        public RedisWhitelistSource(ConfigLoader config) {
+        public RedisBlacklistSource(ConfigLoader config) {
             this.config = config;
         }
         
@@ -447,7 +447,7 @@ public class FlinkADSArbitrageJob {
             if (redisManager.testConnection()) {
                 logger.info("✓ Redis 连接测试成功");
             } else {
-                logger.warn("⚠ Redis 连接测试失败，将使用默认白名单");
+                logger.warn("⚠ Redis 连接测试失败，黑名单将为空");
             }
         }
         
@@ -455,21 +455,21 @@ public class FlinkADSArbitrageJob {
         public void run(SourceContext<Tuple2<String, Boolean>> ctx) throws Exception {
             while (isRunning) {
                 try {
-                    // 从 Redis 读取白名单
-                    Set<String> whitelist = fetchWhitelistFromRedis();
+                    // 从 Redis 读取黑名单
+                    Set<String> blacklist = fetchBlacklistFromRedis();
                     
                     // 发送到广播流
-                    for (String symbol : whitelist) {
+                    for (String symbol : blacklist) {
                         ctx.collect(new Tuple2<>(symbol, true));
                     }
                     
-                    logger.info("从 Redis 读取白名单成功，数量: {}", whitelist.size());
+                    logger.info("从 Redis 读取黑名单成功，数量: {}", blacklist.size());
                     if (logger.isDebugEnabled()) {
-                        logger.debug("白名单内容: {}", whitelist);
+                        logger.debug("黑名单内容: {}", blacklist);
                     }
                     
                 } catch (Exception e) {
-                    logger.error("从 Redis 读取白名单失败: {}", e.getMessage(), e);
+                    logger.error("从 Redis 读取黑名单失败: {}", e.getMessage(), e);
                 }
                 
                 // 等待下一次刷新
@@ -492,39 +492,26 @@ public class FlinkADSArbitrageJob {
         }
         
         /**
-         * 从 Redis 读取白名单
+         * 从 Redis 读取黑名单
          * 
-         * Redis 命令：SMEMBERS crypto:whitelist
+         * Redis 命令：SMEMBERS crypto:blacklist
          */
-        private Set<String> fetchWhitelistFromRedis() {
+        private Set<String> fetchBlacklistFromRedis() {
             try {
                 // 使用 RedisConnectionManager 读取 Set
-                Set<String> whitelist = redisManager.getSet(WHITELIST_KEY);
+                Set<String> blacklist = redisManager.getSet(BLACKLIST_KEY);
                 
-                // 如果 Redis 中没有数据，返回默认白名单
-                if (whitelist == null || whitelist.isEmpty()) {
-                    logger.warn("Redis 中没有白名单数据（Key: {}），使用默认白名单", WHITELIST_KEY);
-                    whitelist = getDefaultWhitelist();
+                // 如果 Redis 中没有数据，返回空黑名单（不过滤任何交易对）
+                if (blacklist == null || blacklist.isEmpty()) {
+                    logger.info("Redis 中没有黑名单数据（Key: {}），不过滤任何交易对", BLACKLIST_KEY);
+                    return new HashSet<>();
                 }
                 
-                return whitelist;
+                return blacklist;
             } catch (Exception e) {
-                logger.error("从 Redis 读取白名单失败，使用默认白名单: {}", e.getMessage());
-                return getDefaultWhitelist();
+                logger.error("从 Redis 读取黑名单失败，不过滤任何交易对: {}", e.getMessage());
+                return new HashSet<>();
             }
-        }
-        
-        /**
-         * 获取默认白名单
-         */
-        private Set<String> getDefaultWhitelist() {
-            Set<String> defaultWhitelist = new HashSet<>();
-            defaultWhitelist.add("BTC-USDT");
-            defaultWhitelist.add("ETH-USDT");
-            defaultWhitelist.add("SOL-USDT");
-            defaultWhitelist.add("BNB-USDT");
-            defaultWhitelist.add("XRP-USDT");
-            return defaultWhitelist;
         }
         
         @Override

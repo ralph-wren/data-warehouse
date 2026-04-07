@@ -5,8 +5,10 @@
 okx:
   # WebSocket API 配置
   websocket:
+    # Ticker 数据使用 public 频道
+    ticker-url: wss://ws.okx.com:8443/ws/v5/public
     # K线数据使用 business 频道（从 2023年6月20日起，K线数据迁移到 business 频道）
-    url: wss://ws.okx.com:8443/ws/v5/business
+    kline-url: wss://ws.okx.com:8443/ws/v5/business
     reconnect:
       max-retries: 10
       initial-delay: 1000
@@ -23,7 +25,7 @@ okx:
   # 注意：只订阅 OKX 上存在的交易对，避免订阅错误
   symbols:
     spot: BTC-USDT,ETH-USDT,SOL-USDT,BNB-USDT,XRP-USDT,LTC-USDT,BCH-USDT,DOGE-USDT,ADA-USDT
-    swap: BTC-USDT-SWAP,ETH-USDT-SWAP,SOL-USDT-SWAP,BNB-USDT-SWAP
+    swap: BTC-USDT-SWAP,ETH-USDT-SWAP,SOL-USDT-SWAP,BNB-USDT-SWAP,XRP-USDT-SWAP,LTC-USDT-SWAP,BCH-USDT-SWAP,DOGE-USDT-SWAP,ADA-USDT-SWAP
 
 # Kafka 配置
 # 注意：本地开发环境使用 localhost

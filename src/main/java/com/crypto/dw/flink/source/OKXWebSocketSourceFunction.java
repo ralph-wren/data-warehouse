@@ -179,7 +179,8 @@ public class OKXWebSocketSourceFunction extends RichSourceFunction<String> {
     private void connectWebSocket(SourceContext<String> ctx) throws Exception {
         closeWebSocketQuietly();
 
-        String wsUrl = config.getString("okx.websocket.url", "wss://ws.okx.com:8443/ws/v5/public");
+        // Ticker 数据使用 public 频道
+        String wsUrl = config.getString("okx.websocket.ticker-url");
         wsClient = new OKXWebSocketClientInternal(wsUrl, ctx, symbols);
         wsClient.connectBlocking();
     }

@@ -26,7 +26,7 @@ export MAVEN_OPTS="--add-opens=java.base/java.util=ALL-UNNAMED \
 -Dlog4j2.disable.jmx=true"
 
 # 运行 Flink 作业
-mvn exec:java -Dexec.mainClass="com.crypto.dw.flink.FlinkDataCollectorJob"
+mvn exec:java -Dexec.mainClass="com.crypto.dw.flink.FlinkTickerCollectorJob"
 ```
 
 ### 2. 使用 java 命令直接运行时
@@ -38,7 +38,7 @@ java --add-opens=java.base/java.util=ALL-UNNAMED \
      -Dorg.apache.flink.shaded.netty4.io.netty.tryReflectionSetAccessible=true \
      -Dlog4j2.disable.jmx=true \
      -cp target/classes:... \
-     com.crypto.dw.flink.FlinkDataCollectorJob
+     com.crypto.dw.flink.FlinkTickerCollectorJob
 ```
 
 ### 3. 使用 Flink Run 命令提交到集群时
@@ -58,7 +58,7 @@ env.java.opts: >
 ```bash
 flink run \
     -Denv.java.opts="--add-opens=java.base/java.util=ALL-UNNAMED --add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED" \
-    -c com.crypto.dw.flink.FlinkDataCollectorJob \
+    -c com.crypto.dw.flink.FlinkTickerCollectorJob \
     target/realtime-crypto-datawarehouse-1.0.0.jar
 ```
 

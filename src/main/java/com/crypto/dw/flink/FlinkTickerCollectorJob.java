@@ -60,9 +60,9 @@ import java.util.List;
  * bash run-flink-collector.sh BTC-USDT ETH-USDT SOL-USDT
  * </pre>
  */
-public class FlinkDataCollectorJob {
+public class FlinkTickerCollectorJob {
 
-    private static final Logger logger = LoggerFactory.getLogger(FlinkDataCollectorJob.class);
+    private static final Logger logger = LoggerFactory.getLogger(FlinkTickerCollectorJob.class);
 
     public static void main(String[] args) throws Exception {
         logger.info("==========================================");

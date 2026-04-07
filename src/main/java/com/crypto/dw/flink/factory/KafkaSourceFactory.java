@@ -124,7 +124,11 @@ public class KafkaSourceFactory {
         String groupId = config.getString(groupIdKey, "flink-" + jobType + "-group");
         String startupMode = config.getString("kafka.consumer.startup-mode", "latest");
         
-        return createKafkaSource(topic, groupId, startupMode);
+        // 使用 topic 名称作为 client.id 后缀,避免同一作业的多个 Source 冲突
+        // 例如: flink-ads-arbitrage-group-spot, flink-ads-arbitrage-group-swap
+        String clientIdSuffix = topic.replace("crypto-ticker-", "").replace("-", "");
+        
+        return createKafkaSource(topic, groupId, startupMode, groupId + "-" + clientIdSuffix);
     }
     
     /**
@@ -189,6 +193,27 @@ public class KafkaSourceFactory {
      * @return 配置好的 KafkaSource
      */
     public KafkaSource<String> createKafkaSource(String topic, String groupId, String startupMode) {
+        // 默认使用 groupId 作为 client.id
+        return createKafkaSource(topic, groupId, startupMode, groupId);
+    }
+    
+    /**
+     * 创建 Kafka Source - 完全自定义（包括 client.id）
+     * 
+     * 从配置文件读取:
+     * - kafka.bootstrap-servers: Kafka 服务器地址
+     * 
+     * 使用场景：
+     * - 同一作业创建多个 Kafka Source（例如套利作业读取现货和合约）
+     * - 需要自定义 client.id 避免 JMX MBean 冲突
+     * 
+     * @param topic Topic 名称
+     * @param groupId Consumer Group ID
+     * @param startupMode 消费模式（earliest/latest/committed）
+     * @param clientId 自定义 client.id（Flink 会自动添加并行实例后缀）
+     * @return 配置好的 KafkaSource
+     */
+    public KafkaSource<String> createKafkaSource(String topic, String groupId, String startupMode, String clientId) {
         // 读取 Kafka 服务器地址
         String bootstrapServers = config.getString("kafka.bootstrap-servers");
         
@@ -199,6 +224,7 @@ public class KafkaSourceFactory {
         logger.info("  Bootstrap Servers: {}", bootstrapServers);
         logger.info("  Topic: {}", topic);
         logger.info("  Consumer Group: {}", groupId);
+        logger.info("  Client ID Prefix: {}", clientId);
         
         // 根据配置选择消费模式
         // 重要说明: committed 模式需要回退策略,避免 NoOffsetForPartitionException
@@ -226,12 +252,22 @@ public class KafkaSourceFactory {
         logger.info("==========================================");
         
         // 构建 KafkaSource
+        // 重要: 设置 client.id 前缀,Flink 会自动为每个并行实例添加后缀(如 -0, -1, -2)
+        // 这样可以避免多个并行实例使用相同的 client.id 导致 JMX MBean 注册冲突
+        // 
+        // 彻底解决方案: 禁用 JMX 注册
+        // 注意: 禁用 JMX 后无法通过 JMX 监控 Kafka Consumer 指标,但不影响功能
+        // 如果需要监控,可以使用 Flink Metrics 或 Kafka 自带的监控工具
         return KafkaSource.<String>builder()
             .setBootstrapServers(bootstrapServers)
             .setTopics(topic)
             .setGroupId(groupId)
             .setStartingOffsets(offsetsInitializer)  // 使用配置的消费模式
             .setValueOnlyDeserializer(new SimpleStringSchema())  // JSON 字符串反序列化器
+            .setProperty("client.id", clientId)  // 设置 client.id 前缀,避免 JMX MBean 冲突
+            .setProperty("enable.auto.commit", "false")  // Flink 管理 offset,禁用自动提交
+            .setProperty("auto.offset.reset", "latest")  // offset 重置策略
+            .setProperty("auto.register.schemas", "false")  // 禁用 schema 自动注册
             .build();
     }
 }

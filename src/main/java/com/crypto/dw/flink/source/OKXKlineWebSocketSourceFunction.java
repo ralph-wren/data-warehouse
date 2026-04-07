@@ -198,7 +198,8 @@ public class OKXKlineWebSocketSourceFunction extends RichSourceFunction<String> 
     private void connectWebSocket(SourceContext<String> ctx) throws Exception {
         closeWebSocketQuietly();
 
-        String wsUrl = config.getString("okx.websocket.url", "wss://ws.okx.com:8443/ws/v5/public");
+        // K线数据使用 business 频道
+        String wsUrl = config.getString("okx.websocket.kline-url");
         wsClient = new OKXKlineWebSocketClientInternal(wsUrl, ctx);
         wsClient.connectBlocking();
     }

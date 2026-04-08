@@ -61,3 +61,15 @@ flink:
 application:
   logging:
     level: INFO
+
+# 套利交易配置
+arbitrage:
+  trading:
+    enabled: false                   # 是否启用自动交易(生产环境默认关闭)
+    trade-amount: 10                # 单笔交易金额(USDT)
+    max-positions: 5                 # 最大持仓数量
+    open-threshold: 0.005            # 开仓阈值(0.5%)
+    close-threshold: 0.002           # 平仓阈值(0.2%)
+    order-timeout-seconds: 30        # 订单超时时间(秒)
+    max-hold-time-minutes: 60        # 最大持仓时间(分钟)
+    max-loss-per-trade: 10           # 单笔最大亏损(USDT)

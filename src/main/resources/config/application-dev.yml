@@ -9,6 +9,8 @@ okx:
     ticker-url: wss://ws.okx.com:8443/ws/v5/public
     # K线数据使用 business 频道（从 2023年6月20日起，K线数据迁移到 business 频道）
     kline-url: wss://ws.okx.com:8443/ws/v5/business
+    # 私有频道 URL（用于订单数据）
+    private-url: wss://ws.okx.com:8443/ws/v5/private
     reconnect:
       max-retries: 10
       initial-delay: 1000
@@ -20,12 +22,20 @@ okx:
     secret: ${OKX_SECRET_KEY}
     passphrase: ${OKX_PASSPHRASE}
   
+  # 代理配置
+  # 说明：国内访问 OKX WebSocket 可能需要代理
+  # 如果连接失败出现 SSL 握手错误，请启用代理
+  proxy:
+    enabled: true  # 是否启用代理
+    host: localhost  # 代理服务器地址
+    port: 10809  # 代理服务器端口
+  
   # 订阅的交易对（逗号分隔）
   # 多个交易对对应多个 Kafka 分区，数据会均匀分布
   # 注意：只订阅 OKX 上存在的交易对，避免订阅错误
   symbols:
-    spot: BTC-USDT,ETH-USDT,SOL-USDT,BNB-USDT,XRP-USDT,LTC-USDT,BCH-USDT,DOGE-USDT,ADA-USDT
-    swap: BTC-USDT-SWAP,ETH-USDT-SWAP,SOL-USDT-SWAP,BNB-USDT-SWAP,XRP-USDT-SWAP,LTC-USDT-SWAP,BCH-USDT-SWAP,DOGE-USDT-SWAP,ADA-USDT-SWAP
+    spot: ADA-USDT
+    swap: ADA-USDT
 
 # Kafka 配置
 # 注意：本地开发环境使用 localhost
@@ -64,6 +74,13 @@ kafka:
       ads-metrics: flink-ads-metrics-group    # ADS 实时指标作业
       ads-arbitrage: flink-ads-arbitrage-group  # ADS 套利计算作业
       ads-monitor: flink-ads-monitor-group    # ADS 市场监控作业
+  
+  # JMX 配置
+  # 说明：禁用 Kafka JMX 可以消除 "Error registering AppInfo mbean" 警告
+  # 这个警告是由于多个 Kafka Consumer 实例注册相同的 JMX MBean 导致的
+  # 对程序运行没有影响，但会产生大量日志噪音
+  jmx:
+    disable: true  # 是否禁用 Kafka JMX (true=禁用，消除警告；false=启用，保留监控能力)
 
 # Doris 配置
 # 注意：本地开发环境使用 localhost 或 127.0.0.1
@@ -124,7 +141,7 @@ flink:
     max-parallelism: 128  # 建议尽早固定，避免后续状态扩缩容带来 restore 复杂度
     buffer-timeout-ms: 100  # 延迟与吞吐的折中值；越小延迟越低，越大吞吐越高
     auto-watermark-interval-ms: 200  # Watermark 推进周期，事件时间作业建议保留
-    operator-chaining: false  # 算子链配置：false=禁用（Web UI 显示详细算子），true=启用（性能优化）
+    operator-chaining: true  # 算子链配置：false=禁用（Web UI 显示详细算子），true=启用（性能优化）
   
   # Checkpoint 配置
   checkpoint:
@@ -215,3 +232,15 @@ application:
     price-max: 10000000
     # 去重窗口（毫秒）
     dedup-window: 5000
+
+# 套利交易配置
+arbitrage:
+  trading:
+    enabled: true                   # 是否启用自动交易(默认关闭,测试通过后再开启)
+    trade-amount: 6              # 单笔交易金额(USDT)
+    max-positions: 5                 # 最大持仓数量
+    open-threshold: 0.005            # 开仓阈值(0.5%)
+    close-threshold: 0.002           # 平仓阈值(0.2%)
+    order-timeout-seconds: 30        # 订单超时时间(秒)
+    max-hold-time-minutes: 60        # 最大持仓时间(分钟)
+    max-loss-per-trade: 10           # 单笔最大亏损(USDT)

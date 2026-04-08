@@ -218,6 +218,9 @@ public class FlinkEnvironmentFactory {
 
         // 配置故障恢复策略，避免依赖 Flink 集群默认值
         configureRestartStrategy(flinkConfig);
+
+        // 配置 Kafka JMX，避免 "Error registering AppInfo mbean" 警告
+        configureKafkaJMX(flinkConfig);
         
         return flinkConfig;
     }
@@ -312,7 +315,7 @@ public class FlinkEnvironmentFactory {
         env.setParallelism(parallelism);
 
         // 最大并行度：影响 keyed state 的分片上限，建议尽早固定，避免后续状态迁移麻烦
-        int maxParallelism = config.getInt("flink.execution.max-parallelism", 128);
+        int maxParallelism = config.getInt("flink.execution.max-parallelism", 4);
         env.setMaxParallelism(maxParallelism);
 
         // Buffer timeout：越小延迟越低，越大吞吐越高；100ms 是比较均衡的默认值
@@ -816,6 +819,45 @@ public class FlinkEnvironmentFactory {
      */
     private void setDurationConfig(Configuration flinkConfig, String key, long millis) {
         flinkConfig.setString(key, millis + " ms");
+    }
+
+    /**
+     * 配置 Kafka JMX
+     *
+     * 说明：
+     * 1. Kafka Consumer 默认会注册 JMX MBean 用于监控
+     * 2. 当多个 Consumer 实例在同一个 JVM 中运行时，会产生 MBean 注册冲突警告
+     * 3. 这个警告不影响程序运行，但会产生大量日志噪音
+     * 4. 通过设置 JVM 参数 kafka.metrics.jmx.exclude 可以禁用 JMX 注册
+     *
+     * @param flinkConfig Flink 配置
+     */
+    private void configureKafkaJMX(Configuration flinkConfig) {
+        boolean disableKafkaJMX = config.getBoolean("kafka.jmx.disable", false);
+        
+        if (disableKafkaJMX) {
+            // 方式1: 通过 JVM 参数禁用 Kafka JMX
+            // 这个参数会传递给 TaskManager 的 JVM
+            String jvmArgs = flinkConfig.getString("env.java.opts", "");
+            
+            // 添加禁用 Kafka JMX 的参数
+            String kafkaJmxDisableArg = "-Dkafka.metrics.jmx.exclude=.*";
+            
+            if (!jvmArgs.contains("kafka.metrics.jmx.exclude")) {
+                if (!jvmArgs.isEmpty() && !jvmArgs.endsWith(" ")) {
+                    jvmArgs += " ";
+                }
+                jvmArgs += kafkaJmxDisableArg;
+                flinkConfig.setString("env.java.opts", jvmArgs);
+                
+                logger.info("Kafka JMX 配置:");
+                logger.info("  已禁用 Kafka JMX MBean 注册，消除 'Error registering AppInfo mbean' 警告");
+                logger.info("  JVM 参数: {}", kafkaJmxDisableArg);
+            }
+        } else {
+            logger.info("Kafka JMX 配置:");
+            logger.info("  保持 Kafka JMX 启用状态（可能会看到 MBean 注册警告，但不影响运行）");
+        }
     }
     
     /**

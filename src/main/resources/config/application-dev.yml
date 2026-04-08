@@ -34,8 +34,8 @@ okx:
   # 多个交易对对应多个 Kafka 分区，数据会均匀分布
   # 注意：只订阅 OKX 上存在的交易对，避免订阅错误
   symbols:
-    spot: ADA-USDT
-    swap: ADA-USDT
+    spot: ADA-USDT,TURMP-USDT,ETH-USDT,XRP-USDT,DODGE-USDT
+    swap: ADA-USDT,TURMP-USDT,ETH-USDT,XRP-USDT,DODGE-USDT
 
 # Kafka 配置
 # 注意：本地开发环境使用 localhost

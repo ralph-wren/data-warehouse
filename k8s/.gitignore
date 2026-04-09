@@ -1,0 +1,7 @@
+# 忽略临时文件
+*.log
+*.tmp
+debug.log
+
+# 忽略本地配置
+local-*.yaml

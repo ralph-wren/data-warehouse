@@ -1,0 +1,27 @@
+# Ticker Collector Job 配置
+JOB_NAME: ticker-collector
+JOB_CLASS: com.crypto.dw.flink.FlinkTickerCollectorJob
+
+# 资源配置
+JM_MEMORY: 1600m
+JM_MEMORY_REQUEST: 1Gi
+JM_MEMORY_LIMIT: 2Gi
+JM_CPU_REQUEST: 500m
+JM_CPU_LIMIT: 1000m
+
+TM_MEMORY: 2048m
+TM_MEMORY_REQUEST: 1.5Gi
+TM_MEMORY_LIMIT: 2.5Gi
+TM_CPU_REQUEST: 500m
+TM_CPU_LIMIT: 1000m
+TM_REPLICAS: 2
+TM_SLOTS: 2
+
+# Flink 配置
+PARALLELISM: 1
+CHECKPOINT_INTERVAL: 60000
+
+# 镜像配置
+# 使用本地构建的镜像（确保已经构建：mvn clean package && docker build -t flink-jobs:1.0.0 -f k8s/Dockerfile .）
+DOCKER_REGISTRY: flink-jobs
+VERSION: 1.0.0

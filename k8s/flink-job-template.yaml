@@ -1,0 +1,167 @@
+---
+# Flink Job 简化部署模板（使用官方镜像 + JAR 挂载）
+# 适用于本地开发环境
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flink-${JOB_NAME}-config
+  namespace: flink
+data:
+  flink-conf.yaml: |
+    jobmanager.rpc.address: flink-${JOB_NAME}-jobmanager
+    jobmanager.rpc.port: 6123
+    jobmanager.memory.process.size: ${JM_MEMORY}
+    taskmanager.memory.process.size: ${TM_MEMORY}
+    taskmanager.numberOfTaskSlots: ${TM_SLOTS}
+    parallelism.default: ${PARALLELISM}
+    
+    state.backend: rocksdb
+    state.checkpoints.dir: file:///opt/flink/checkpoints
+    state.savepoints.dir: file:///opt/flink/savepoints
+    execution.checkpointing.interval: ${CHECKPOINT_INTERVAL}
+    
+    metrics.reporter.prom.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+    metrics.reporter.prom.port: 9249
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: flink-${JOB_NAME}-jobmanager
+  namespace: flink
+spec:
+  type: NodePort
+  ports:
+  - name: rpc
+    port: 6123
+    targetPort: 6123
+  - name: webui
+    port: 8081
+    targetPort: 8081
+    nodePort: 30081
+  - name: metrics
+    port: 9249
+    targetPort: 9249
+  selector:
+    app: flink-${JOB_NAME}
+    component: jobmanager
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flink-${JOB_NAME}-jobmanager
+  namespace: flink
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: flink-${JOB_NAME}
+      component: jobmanager
+  template:
+    metadata:
+      labels:
+        app: flink-${JOB_NAME}
+        component: jobmanager
+    spec:
+      serviceAccountName: flink
+      containers:
+      - name: jobmanager
+        image: flink:1.17.2-java11
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/bash", "-c"]
+        args:
+        - |
+          echo "Starting Flink JobManager..."
+          /docker-entrypoint.sh jobmanager
+        env:
+        - name: FLINK_PROPERTIES
+          value: |
+            jobmanager.rpc.address: flink-${JOB_NAME}-jobmanager
+        envFrom:
+        - secretRef:
+            name: flink-common-secret
+        volumeMounts:
+        - name: flink-config
+          mountPath: /opt/flink/conf/flink-conf.yaml
+          subPath: flink-conf.yaml
+        - name: flink-storage
+          mountPath: /opt/flink/checkpoints
+        - name: flink-storage
+          mountPath: /opt/flink/savepoints
+        resources:
+          requests:
+            memory: "${JM_MEMORY_REQUEST}"
+            cpu: "${JM_CPU_REQUEST}"
+          limits:
+            memory: "${JM_MEMORY_LIMIT}"
+            cpu: "${JM_CPU_LIMIT}"
+      volumes:
+      - name: flink-config
+        configMap:
+          name: flink-${JOB_NAME}-config
+      - name: flink-storage
+        hostPath:
+          path: /tmp/flink-data/${JOB_NAME}
+          type: DirectoryOrCreate
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flink-${JOB_NAME}-taskmanager
+  namespace: flink
+spec:
+  replicas: ${TM_REPLICAS}
+  selector:
+    matchLabels:
+      app: flink-${JOB_NAME}
+      component: taskmanager
+  template:
+    metadata:
+      labels:
+        app: flink-${JOB_NAME}
+        component: taskmanager
+    spec:
+      serviceAccountName: flink
+      containers:
+      - name: taskmanager
+        image: flink:1.17.2-java11
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/bash", "-c"]
+        args:
+        - |
+          echo "Starting Flink TaskManager..."
+          /docker-entrypoint.sh taskmanager
+        env:
+        - name: FLINK_PROPERTIES
+          value: |
+            jobmanager.rpc.address: flink-${JOB_NAME}-jobmanager
+            taskmanager.numberOfTaskSlots: ${TM_SLOTS}
+        envFrom:
+        - secretRef:
+            name: flink-common-secret
+        volumeMounts:
+        - name: flink-config
+          mountPath: /opt/flink/conf/flink-conf.yaml
+          subPath: flink-conf.yaml
+        - name: flink-storage
+          mountPath: /opt/flink/checkpoints
+        - name: flink-storage
+          mountPath: /opt/flink/savepoints
+        resources:
+          requests:
+            memory: "${TM_MEMORY_REQUEST}"
+            cpu: "${TM_CPU_REQUEST}"
+          limits:
+            memory: "${TM_MEMORY_LIMIT}"
+            cpu: "${TM_CPU_LIMIT}"
+      volumes:
+      - name: flink-config
+        configMap:
+          name: flink-${JOB_NAME}-config
+      - name: flink-storage
+        hostPath:
+          path: /tmp/flink-data/${JOB_NAME}
+          type: DirectoryOrCreate

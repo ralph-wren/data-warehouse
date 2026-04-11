@@ -339,7 +339,7 @@ public class TradingDecisionProcessor
                     if (duration >= 5000) {
                         // 持续超过5秒,执行开仓
                         double durationSec = duration / 1000.0;
-                        logger.info("⏰ 套利机会持续 {} 秒,满足开仓条件", String.format("%.1f", durationSec));
+                        logger.debug("⏰ 套利机会持续 {} 秒,满足开仓条件", String.format("%.1f", durationSec));
                         openPosition(opportunity, out);
                         
                         // 清除跟踪器
@@ -609,7 +609,7 @@ public class TradingDecisionProcessor
             logger.info("📊 当前全局持仓数量: {} / {}", currentPositionCount, maxPositions);
             
             if (currentPositionCount >= maxPositions) {
-                logger.warn("⚠️ 全局持仓数量已达上限 ({}/{}),拒绝开仓: {}", 
+                logger.debug("⚠️ 全局持仓数量已达上限 ({}/{}),拒绝开仓: {}",
                     currentPositionCount, maxPositions, opp.symbol);
                 
                 // 写入拒绝日志
@@ -1030,8 +1030,6 @@ public class TradingDecisionProcessor
                 timestamp, symbol, orderId, instType, instId, side, posSide,
                 orderType, price, avgPrice, size, filledSize, state,
                 fee, feeCcy, fillTimeStr, createTimeStr, updateTimeStr);
-            
-            logger.info("📄 CSV行内容: {}", csvLine);
             
             // 确保 orderDetailFullWriter 不为空
             if (orderDetailFullWriter == null) {

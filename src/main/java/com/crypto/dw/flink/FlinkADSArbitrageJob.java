@@ -119,7 +119,12 @@ public class FlinkADSArbitrageJob {
             return spot;
         })
         .filter(spot -> spot.price != null && spot.price.compareTo(BigDecimal.ZERO) > 0)
-        .name("Parse Spot Price");
+        .name("Parse Spot Price")
+        // ⭐ 按秒聚合,保留每秒最新的一条记录,减少join数据量
+        .keyBy(spot -> spot.symbol)
+        .window(org.apache.flink.streaming.api.windowing.assigners.TumblingEventTimeWindows.of(Time.seconds(1)))
+        .reduce((spot1, spot2) -> spot2.timestamp > spot1.timestamp ? spot2 : spot1)
+        .name("Aggregate Spot By Second");
         
         logger.info("✓ 现货价格流创建成功");
         
@@ -163,7 +168,12 @@ public class FlinkADSArbitrageJob {
             return futures;
         })
         .filter(futures -> futures.price != null && futures.price.compareTo(BigDecimal.ZERO) > 0)
-        .name("Parse Swap Price");
+        .name("Parse Swap Price")
+        // ⭐ 按秒聚合,保留每秒最新的一条记录,减少join数据量
+        .keyBy(futures -> futures.symbol)
+        .window(org.apache.flink.streaming.api.windowing.assigners.TumblingEventTimeWindows.of(Time.seconds(1)))
+        .reduce((futures1, futures2) -> futures2.timestamp > futures1.timestamp ? futures2 : futures1)
+        .name("Aggregate Futures By Second");
         
         logger.info("✓ 合约价格流创建成功");
         

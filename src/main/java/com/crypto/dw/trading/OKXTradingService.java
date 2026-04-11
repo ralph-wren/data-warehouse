@@ -956,13 +956,43 @@ public class OKXTradingService implements Serializable {
      * @return 中文错误说明
      */
     private String translateErrorMessage(String errorCode, String originalMsg) {
+        // 优先检查原始消息中的关键词,提供更精确的翻译
+        if (originalMsg != null) {
+            String lowerMsg = originalMsg.toLowerCase();
+            
+            // 借币相关错误
+            if (lowerMsg.contains("loan quota") || lowerMsg.contains("borrowing")) {
+                if (lowerMsg.contains("insufficient")) {
+                    return "借币额度不足 - 平台的借币额度已用完,无法借入该币种进行做空";
+                }
+            }
+            
+            // 余额不足相关错误
+            if (lowerMsg.contains("insufficient balance") || lowerMsg.contains("not enough")) {
+                return "账户余额不足 - 请检查账户中的 USDT 或对应币种余额是否充足";
+            }
+            
+            // 最小数量错误
+            if (lowerMsg.contains("minimum") && lowerMsg.contains("size")) {
+                return "订单数量低于最小限额 - 请增加交易数量";
+            }
+            
+            // 最大数量错误
+            if (lowerMsg.contains("maximum") && lowerMsg.contains("size")) {
+                return "订单数量超过最大限额 - 请减少交易数量";
+            }
+        }
+        
+        // 根据错误码翻译
         switch (errorCode) {
             case "51121":
                 return "订单数量不符合最小交易单位 - 数量必须是 lot size 的整数倍,请调整交易数量";
             case "51001":
                 return "交易对不存在 - 该币种在 OKX 上不存在或交易对名称错误,请检查交易对是否正确";
             case "51008":
-                return "账户余额不足 - 请检查账户中的 USDT 余额是否充足";
+                // 51008 是一个通用错误码,可能是余额不足或借币额度不足
+                // 如果原始消息没有匹配到关键词,返回通用说明
+                return "余额或额度不足 - 可能是账户余额不足或借币额度不足";
             case "51169":
                 return "没有可平仓的持仓 - 该方向没有持仓或持仓已被平掉";
             case "59110":
@@ -1503,5 +1533,67 @@ public class OKXTradingService implements Serializable {
                 borrowAmount, interestRate, hours, interest);
         
         return interest;
+    }
+    
+    /**
+     * 查询订单详细信息
+     * 包含成交时间、成交价格、手续费等详细信息
+     * 
+     * @param orderId 订单ID
+     * @param instType 产品类型: SPOT(现货), SWAP(合约)
+     * @return 订单详细信息的JSON对象,如果失败返回null
+     */
+    public com.fasterxml.jackson.databind.JsonNode queryOrderDetail(String orderId, String instType) {
+        try {
+            // API路径: GET /api/v5/trade/order?ordId={orderId}&instType={instType}
+            String requestPath = "/api/v5/trade/order?ordId=" + orderId + "&instType=" + instType;
+            String timestamp = getIsoTimestamp();
+            String method = "GET";
+            
+            // 生成签名
+            String signature = generateSignature(timestamp, method, requestPath, "");
+            
+            // 构建请求
+            Request request = new Request.Builder()
+                    .url(baseUrl + requestPath)
+                    .header("OK-ACCESS-KEY", apiKey)
+                    .header("OK-ACCESS-SIGN", signature)
+                    .header("OK-ACCESS-TIMESTAMP", timestamp)
+                    .header("OK-ACCESS-PASSPHRASE", passphrase)
+                    .header("Content-Type", "application/json")
+                    .get()
+                    .build();
+            
+            // 发送请求
+            Response response = httpClient.newCall(request).execute();
+            String responseBody = response.body().string();
+            
+            // 解析响应
+            com.fasterxml.jackson.databind.JsonNode root = OBJECT_MAPPER.readTree(responseBody);
+            String code = root.path("code").asText();
+            
+            if ("0".equals(code)) {
+                // 查询成功
+                com.fasterxml.jackson.databind.JsonNode dataArray = root.path("data");
+                if (dataArray.isArray() && dataArray.size() > 0) {
+                    com.fasterxml.jackson.databind.JsonNode orderDetail = dataArray.get(0);
+                    logger.info("✅ 查询订单详情成功: orderId={}, instType={}", orderId, instType);
+                    return orderDetail;
+                } else {
+                    logger.warn("⚠️ 订单详情为空: orderId={}, instType={}", orderId, instType);
+                    return null;
+                }
+            } else {
+                String msg = root.path("msg").asText();
+                logger.error("❌ 查询订单详情失败: orderId={}, instType={}, code={}, msg={}", 
+                    orderId, instType, code, msg);
+                return null;
+            }
+            
+        } catch (Exception e) {
+            logger.error("❌ 查询订单详情异常: orderId={}, instType={}, error={}", 
+                orderId, instType, e.getMessage(), e);
+            return null;
+        }
     }
 }

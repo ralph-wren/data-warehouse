@@ -60,6 +60,8 @@ public class TradingDecisionProcessor
     private transient SyncCsvWriter orderDetailWriter;  // 同步订单明细日志（使用线程池）
     private transient SyncCsvWriter positionWriter;     // 同步持仓日志（使用线程池）
     private transient SyncCsvWriter summaryWriter;      // 同步交易汇总日志（使用线程池）
+    private transient SyncCsvWriter orderDetailFullWriter;  // 订单详细信息日志（包含成交时间、手续费等）
+    private transient java.util.concurrent.ExecutorService orderQueryExecutor;  // 订单查询线程池
     
     private transient ValueState<PositionState> positionState;
     private transient MapState<String, PendingOrder> pendingOrders;
@@ -128,6 +130,22 @@ public class TradingDecisionProcessor
         };
         summaryWriter = new SyncCsvWriter(logDir, "summary", summaryHeaders, 2);
         
+        // 订单详细信息日志表头（包含成交时间、手续费等）
+        String[] orderDetailFullHeaders = {
+            "timestamp", "symbol", "order_id", "inst_type", "inst_id", "side", "pos_side",
+            "order_type", "price", "avg_price", "size", "filled_size", "state",
+            "fee", "fee_ccy", "fill_time", "create_time", "update_time"
+        };
+        orderDetailFullWriter = new SyncCsvWriter(logDir, "order_detail_full", orderDetailFullHeaders, 2);
+        
+        // 初始化订单查询线程池（固定2个线程）
+        orderQueryExecutor = java.util.concurrent.Executors.newFixedThreadPool(2, r -> {
+            Thread t = new Thread(r);
+            t.setName("order-query-thread");
+            t.setDaemon(true);  // 设置为守护线程
+            return t;
+        });
+        
         // 初始化持仓状态
         ValueStateDescriptor<PositionState> positionDescriptor = new ValueStateDescriptor<>(
             "position-state-v3",
@@ -194,6 +212,19 @@ public class TradingDecisionProcessor
     
     @Override
     public void close() throws Exception {
+        // 关闭订单查询线程池
+        if (orderQueryExecutor != null) {
+            orderQueryExecutor.shutdown();
+            try {
+                // 等待最多10秒让任务完成
+                if (!orderQueryExecutor.awaitTermination(10, java.util.concurrent.TimeUnit.SECONDS)) {
+                    orderQueryExecutor.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                orderQueryExecutor.shutdownNow();
+            }
+        }
+        
         // 关闭同步 CSV 写入器
         if (orderDetailWriter != null) {
             orderDetailWriter.close();
@@ -203,6 +234,9 @@ public class TradingDecisionProcessor
         }
         if (summaryWriter != null) {
             summaryWriter.close();
+        }
+        if (orderDetailFullWriter != null) {
+            orderDetailFullWriter.close();
         }
         
         // 关闭杠杆支持信息缓存
@@ -813,6 +847,11 @@ public class TradingDecisionProcessor
         }
     }
     
+    /**
+     * 处理订单成交事件
+     * 当现货和合约订单都成交后,确认开仓/平仓
+     * 同时异步查询订单详细信息（成交时间、手续费等）
+     */
     private void handleOrderFilled(OrderUpdate order, Collector<TradeRecord> out) 
             throws Exception {
         
@@ -832,6 +871,40 @@ public class TradingDecisionProcessor
         
         // 检查是否都成交
         if (pending.spotFilled && pending.swapFilled) {
+            // ⭐ 异步查询订单详细信息（不阻塞主流程）
+            String symbol = pending.symbol;
+            String spotOrderId = pending.spotOrderId;
+            String swapOrderId = pending.swapOrderId;
+            
+            // 提交异步任务查询现货订单详情
+            orderQueryExecutor.submit(() -> {
+                try {
+                    com.fasterxml.jackson.databind.JsonNode spotDetail = 
+                        tradingService.queryOrderDetail(spotOrderId, "SPOT");
+                    if (spotDetail != null) {
+                        saveOrderDetailToCsv(symbol, spotDetail, "SPOT");
+                    }
+                } catch (Exception e) {
+                    logger.error("❌ 查询现货订单详情失败: orderId={}, error={}", 
+                        spotOrderId, e.getMessage());
+                }
+            });
+            
+            // 提交异步任务查询合约订单详情
+            orderQueryExecutor.submit(() -> {
+                try {
+                    com.fasterxml.jackson.databind.JsonNode swapDetail = 
+                        tradingService.queryOrderDetail(swapOrderId, "SWAP");
+                    if (swapDetail != null) {
+                        saveOrderDetailToCsv(symbol, swapDetail, "SWAP");
+                    }
+                } catch (Exception e) {
+                    logger.error("❌ 查询合约订单详情失败: orderId={}, error={}", 
+                        swapOrderId, e.getMessage());
+                }
+            });
+            
+            // 确认开仓/平仓（主流程不阻塞）
             if ("OPEN".equals(pending.action)) {
                 confirmOpen(pending, out);
             } else {
@@ -841,6 +914,70 @@ public class TradingDecisionProcessor
             // 清理待确认订单
             pendingOrders.remove(pending.spotOrderId);
             pendingOrders.remove(pending.swapOrderId);
+        }
+    }
+    
+    /**
+     * 保存订单详细信息到CSV文件
+     * 包含成交时间、成交价格、手续费等详细信息
+     */
+    private void saveOrderDetailToCsv(String symbol, com.fasterxml.jackson.databind.JsonNode orderDetail, String instType) {
+        try {
+            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+            String orderId = orderDetail.path("ordId").asText();
+            String instId = orderDetail.path("instId").asText();
+            String side = orderDetail.path("side").asText();
+            String posSide = orderDetail.path("posSide").asText();
+            String orderType = orderDetail.path("ordType").asText();
+            String price = orderDetail.path("px").asText();
+            String avgPrice = orderDetail.path("avgPx").asText();
+            String size = orderDetail.path("sz").asText();
+            String filledSize = orderDetail.path("accFillSz").asText();
+            String state = orderDetail.path("state").asText();
+            String fee = orderDetail.path("fee").asText();
+            String feeCcy = orderDetail.path("feeCcy").asText();
+            String fillTime = orderDetail.path("fillTime").asText();
+            String createTime = orderDetail.path("cTime").asText();
+            String updateTime = orderDetail.path("uTime").asText();
+            
+            // 转换时间戳为可读格式
+            String fillTimeStr = convertTimestamp(fillTime);
+            String createTimeStr = convertTimestamp(createTime);
+            String updateTimeStr = convertTimestamp(updateTime);
+            
+            // 写入CSV
+            String csvLine = String.format("%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s",
+                timestamp, symbol, orderId, instType, instId, side, posSide,
+                orderType, price, avgPrice, size, filledSize, state,
+                fee, feeCcy, fillTimeStr, createTimeStr, updateTimeStr);
+            
+            orderDetailFullWriter.write(csvLine);
+            
+            logger.info("📝 已保存订单详细信息: symbol={}, orderId={}, instType={}, avgPrice={}, fee={} {}", 
+                symbol, orderId, instType, avgPrice, fee, feeCcy);
+            
+        } catch (Exception e) {
+            logger.error("❌ 保存订单详细信息失败: symbol={}, instType={}, error={}", 
+                symbol, instType, e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * 转换时间戳为可读格式
+     * OKX返回的时间戳是毫秒级的
+     */
+    private String convertTimestamp(String timestamp) {
+        try {
+            if (timestamp == null || timestamp.isEmpty() || "0".equals(timestamp)) {
+                return "N/A";
+            }
+            long ts = Long.parseLong(timestamp);
+            return LocalDateTime.ofInstant(
+                java.time.Instant.ofEpochMilli(ts), 
+                java.time.ZoneId.systemDefault()
+            ).format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        } catch (Exception e) {
+            return timestamp;  // 转换失败,返回原始值
         }
     }
     
@@ -997,6 +1134,10 @@ public class TradingDecisionProcessor
      * 定期输出状态日志
      * 每30秒输出一次当前币对的状态信息
      */
+    /**
+     * 打印状态日志（每5秒输出一次）
+     * 包含持仓状态、预估利润率、套利机会跟踪等信息
+     */
     private void printStatusLog(String symbol, PositionState position, OpportunityTracker tracker, long now) throws Exception {
         // 构建状态信息
         StringBuilder status = new StringBuilder();
@@ -1019,13 +1160,16 @@ public class TradingDecisionProcessor
                 position.getEntrySpotPrice(), position.getEntrySwapPrice()));
             status.append(String.format("  开仓价差率: %s%%\n", position.getEntrySpreadRate()));
             
+            // ⭐ 重点：每5秒打印预估利润率
             if (position.getUnrealizedProfit() != null) {
                 BigDecimal profitRate = position.getUnrealizedProfit()
                     .divide(position.getAmount(), 6, RoundingMode.HALF_UP)
                     .multiply(new BigDecimal("100"));
-                status.append(String.format("  未实现利润: %s USDT (%s%%)\n", 
+                status.append(String.format("  💰 预估利润: %s USDT (利润率: %s%%)\n", 
                     position.getUnrealizedProfit().setScale(4, RoundingMode.HALF_UP),
                     profitRate.setScale(2, RoundingMode.HALF_UP)));
+            } else {
+                status.append("  💰 预估利润: 计算中...\n");
             }
             
             if (holdHours > 0) {

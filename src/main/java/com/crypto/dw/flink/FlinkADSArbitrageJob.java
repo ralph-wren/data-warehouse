@@ -90,9 +90,11 @@ public class FlinkADSArbitrageJob {
         
         // ========== 步骤 1: 创建现货价格流 ==========
         logger.info("创建现货价格流...");
+        // 注意: 为现货和合约使用不同的 client.id,避免 JMX MBean 冲突
+        String spotTopic = config.getString("kafka.topic.crypto-ticker-spot", "crypto-ticker-spot");
         KafkaSource<String> spotKafkaSource = kafkaSourceFactory.createKafkaSourceForJob(
-            "ads-arbitrage",
-            config.getString("kafka.topic.crypto-ticker-spot", "crypto-ticker-spot")
+            "ads-arbitrage-spot",
+            spotTopic
         );
         
         DataStream<SpotPrice> spotStream = env.fromSource(
@@ -127,9 +129,11 @@ public class FlinkADSArbitrageJob {
         
         // ========== 步骤 2: 创建合约价格流 ==========
         logger.info("创建合约价格流...");
+        // 注意: 为现货和合约使用不同的 client.id,避免 JMX MBean 冲突
+        String swapTopic = config.getString("kafka.topic.crypto-ticker-swap", "crypto-ticker-swap");
         KafkaSource<String> swapKafkaSource = kafkaSourceFactory.createKafkaSourceForJob(
-            "ads-arbitrage",
-            config.getString("kafka.topic.crypto-ticker-swap", "crypto-ticker-swap")
+            "ads-arbitrage-swap",
+            swapTopic
         );
         
         DataStream<FuturesPrice> futuresStream = env.fromSource(

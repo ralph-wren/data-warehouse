@@ -68,6 +68,7 @@ public class TradingDecisionProcessor
     private transient ValueState<OpportunityTracker> opportunityTracker;
     private transient ValueState<Long> lastStatusLogTime;  // 最后一次状态日志输出时间
     private transient ValueState<String> currentSymbol;    // 当前币对名称
+    private transient ValueState<ArbitrageOpportunity> currentOpportunity;  // 当前套利机会（用于状态日志）
     
     // 失败黑名单状态
     private transient MapState<String, Integer> failureCount;  // 失败次数统计
@@ -182,6 +183,13 @@ public class TradingDecisionProcessor
         );
         currentSymbol = getRuntimeContext().getState(symbolDescriptor);
         
+        // 初始化当前套利机会状态
+        ValueStateDescriptor<ArbitrageOpportunity> opportunityDescriptor = new ValueStateDescriptor<>(
+            "current-opportunity",
+            ArbitrageOpportunity.class
+        );
+        currentOpportunity = getRuntimeContext().getState(opportunityDescriptor);
+        
         // 初始化失败黑名单状态
         MapStateDescriptor<String, Integer> failureCountDescriptor = new MapStateDescriptor<>(
             "failure-count",
@@ -263,6 +271,9 @@ public class TradingDecisionProcessor
         
         // 保存当前币对名称
         currentSymbol.update(opportunity.symbol);
+        
+        // 保存当前套利机会（用于状态日志显示当前价差）
+        currentOpportunity.update(opportunity);
         
         // 注册定时器(只在第一次处理时注册)
         Long lastLogTime = lastStatusLogTime.value();
@@ -384,6 +395,7 @@ public class TradingDecisionProcessor
         PositionState position = positionState.value();
         OpportunityTracker tracker = opportunityTracker.value();
         String symbol = currentSymbol.value();
+        ArbitrageOpportunity opportunity = currentOpportunity.value();  // 获取当前套利机会
         
         // 如果没有币对信息,跳过本次输出
         if (symbol == null || symbol.isEmpty()) {
@@ -404,7 +416,7 @@ public class TradingDecisionProcessor
         
         // 只有持仓状态的币对才输出状态日志
         if (position != null && position.isOpen()) {
-            printStatusLog(symbol, position, tracker, now);
+            printStatusLog(symbol, position, tracker, opportunity, now);  // 传入当前套利机会
         }
         
         // 注册下一个定时器,实现持续定时输出
@@ -505,8 +517,15 @@ public class TradingDecisionProcessor
             spreadDiff = spreadDiff.negate();
         }
         
-        BigDecimal fee = pos.getAmount().multiply(new BigDecimal("0.002"));
-        BigDecimal unrealizedProfit = spreadDiff.subtract(fee);
+        // 计算未实现利润 = 价差变化 × 币数量
+        BigDecimal unrealizedProfitFromSpread = spreadDiff.multiply(pos.getAmount());
+        
+        // 计算手续费（基于 USDT 金额）
+        BigDecimal usdtAmount = pos.getAmount().multiply(pos.getEntrySpotPrice());
+        BigDecimal fee = usdtAmount.multiply(new BigDecimal("0.002"));
+        
+        // 最终未实现利润
+        BigDecimal unrealizedProfit = unrealizedProfitFromSpread.subtract(fee);
         boolean stopLoss = unrealizedProfit.compareTo(maxLossPerTrade.negate()) < 0;
         
         return spreadConverged || timeout || stopLoss;
@@ -530,14 +549,18 @@ public class TradingDecisionProcessor
             spreadDiff = spreadDiff.negate();
         }
         
-        // 计算手续费
-        BigDecimal fee = pos.getAmount().multiply(new BigDecimal("0.002"));
+        // 计算未实现利润 = 价差变化 × 币数量
+        BigDecimal unrealizedProfitFromSpread = spreadDiff.multiply(pos.getAmount());
         
-        // 计算未实现利润
-        BigDecimal unrealizedProfit = spreadDiff.subtract(fee);
+        // 计算手续费（基于 USDT 金额）
+        BigDecimal usdtAmount = pos.getAmount().multiply(pos.getEntrySpotPrice());
+        BigDecimal fee = usdtAmount.multiply(new BigDecimal("0.002"));
         
-        // 计算利润率
-        BigDecimal profitRate = unrealizedProfit.divide(pos.getAmount(), 6, RoundingMode.HALF_UP)
+        // 最终未实现利润 = 价差利润 - 手续费
+        BigDecimal unrealizedProfit = unrealizedProfitFromSpread.subtract(fee);
+        
+        // 计算利润率（基于 USDT 金额）
+        BigDecimal profitRate = unrealizedProfit.divide(usdtAmount, 6, RoundingMode.HALF_UP)
             .multiply(new BigDecimal("100"));
         
         // 更新持仓状态
@@ -675,6 +698,7 @@ public class TradingDecisionProcessor
                 tempPosition.setAmount(coinAmount);  // 保存币的数量（用于平仓）
                 tempPosition.setEntrySpotPrice(opp.spotPrice);
                 tempPosition.setEntrySwapPrice(opp.futuresPrice);
+                tempPosition.setEntrySpreadRate(opp.spreadRate);  // 保存开仓价差率
                 tempPosition.setOpenTime(System.currentTimeMillis());
                 tempPosition.setSpotOrderId(spotOrderId);
                 tempPosition.setSwapOrderId(swapOrderId);
@@ -729,6 +753,7 @@ public class TradingDecisionProcessor
                 tempPosition.setAmount(coinAmount);  // 保存币的数量（用于平仓）
                 tempPosition.setEntrySpotPrice(opp.spotPrice);
                 tempPosition.setEntrySwapPrice(BigDecimal.ZERO);  // 合约未成交，设置为0
+                tempPosition.setEntrySpreadRate(opp.spreadRate);  // 保存开仓价差率
                 tempPosition.setOpenTime(System.currentTimeMillis());
                 tempPosition.setSpotOrderId(spotOrderId);
                 tempPosition.setSwapOrderId(null);  // 合约订单失败，设置为null
@@ -871,36 +896,50 @@ public class TradingDecisionProcessor
         
         // 检查是否都成交
         if (pending.spotFilled && pending.swapFilled) {
-            // ⭐ 异步查询订单详细信息（不阻塞主流程）
+            // ⭐ 使用 orderQueryExecutor 异步查询订单详细信息（不阻塞主流程）
+            // saveOrderDetailToCsv 内部使用 SyncCsvWriter 的线程池写入 CSV
             String symbol = pending.symbol;
             String spotOrderId = pending.spotOrderId;
             String swapOrderId = pending.swapOrderId;
             
+            logger.info("🔍 开始异步查询订单详情: symbol={}, spotOrderId={}, swapOrderId={}", 
+                symbol, spotOrderId, swapOrderId);
+            
             // 提交异步任务查询现货订单详情
             orderQueryExecutor.submit(() -> {
                 try {
+                    logger.info("📡 正在查询现货订单详情: orderId={}", spotOrderId);
                     com.fasterxml.jackson.databind.JsonNode spotDetail = 
                         tradingService.queryOrderDetail(spotOrderId, "SPOT");
                     if (spotDetail != null) {
+                        logger.info("✅ 现货订单详情查询成功,准备保存到CSV: orderId={}", spotOrderId);
+                        // saveOrderDetailToCsv 内部使用 SyncCsvWriter 的线程池写入
                         saveOrderDetailToCsv(symbol, spotDetail, "SPOT");
+                    } else {
+                        logger.warn("⚠️ 现货订单详情为空,无法保存: orderId={}", spotOrderId);
                     }
                 } catch (Exception e) {
                     logger.error("❌ 查询现货订单详情失败: orderId={}, error={}", 
-                        spotOrderId, e.getMessage());
+                        spotOrderId, e.getMessage(), e);
                 }
             });
             
             // 提交异步任务查询合约订单详情
             orderQueryExecutor.submit(() -> {
                 try {
+                    logger.info("📡 正在查询合约订单详情: orderId={}", swapOrderId);
                     com.fasterxml.jackson.databind.JsonNode swapDetail = 
                         tradingService.queryOrderDetail(swapOrderId, "SWAP");
                     if (swapDetail != null) {
+                        logger.info("✅ 合约订单详情查询成功,准备保存到CSV: orderId={}", swapOrderId);
+                        // saveOrderDetailToCsv 内部使用 SyncCsvWriter 的线程池写入
                         saveOrderDetailToCsv(symbol, swapDetail, "SWAP");
+                    } else {
+                        logger.warn("⚠️ 合约订单详情为空,无法保存: orderId={}", swapOrderId);
                     }
                 } catch (Exception e) {
                     logger.error("❌ 查询合约订单详情失败: orderId={}, error={}", 
-                        swapOrderId, e.getMessage());
+                        swapOrderId, e.getMessage(), e);
                 }
             });
             
@@ -923,6 +962,8 @@ public class TradingDecisionProcessor
      */
     private void saveOrderDetailToCsv(String symbol, com.fasterxml.jackson.databind.JsonNode orderDetail, String instType) {
         try {
+            logger.info("📝 开始保存订单详细信息到CSV: symbol={}, instType={}", symbol, instType);
+            
             String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
             String orderId = orderDetail.path("ordId").asText();
             String instId = orderDetail.path("instId").asText();
@@ -951,9 +992,17 @@ public class TradingDecisionProcessor
                 orderType, price, avgPrice, size, filledSize, state,
                 fee, feeCcy, fillTimeStr, createTimeStr, updateTimeStr);
             
+            logger.info("📄 CSV行内容: {}", csvLine);
+            
+            // 确保 orderDetailFullWriter 不为空
+            if (orderDetailFullWriter == null) {
+                logger.error("❌ orderDetailFullWriter 为空,无法写入CSV!");
+                return;
+            }
+            
             orderDetailFullWriter.write(csvLine);
             
-            logger.info("📝 已保存订单详细信息: symbol={}, orderId={}, instType={}, avgPrice={}, fee={} {}", 
+            logger.info("✅ 已保存订单详细信息到CSV: symbol={}, orderId={}, instType={}, avgPrice={}, fee={} {}", 
                 symbol, orderId, instType, avgPrice, fee, feeCcy);
             
         } catch (Exception e) {
@@ -1136,9 +1185,10 @@ public class TradingDecisionProcessor
      */
     /**
      * 打印状态日志（每5秒输出一次）
-     * 包含持仓状态、预估利润率、套利机会跟踪等信息
+     * 包含持仓状态、预估利润率、当前价差、套利机会跟踪等信息
      */
-    private void printStatusLog(String symbol, PositionState position, OpportunityTracker tracker, long now) throws Exception {
+    private void printStatusLog(String symbol, PositionState position, OpportunityTracker tracker, 
+                                ArbitrageOpportunity opportunity, long now) throws Exception {
         // 构建状态信息
         StringBuilder status = new StringBuilder();
         status.append("\n========================================\n");
@@ -1155,15 +1205,40 @@ public class TradingDecisionProcessor
             
             status.append("📈 持仓状态: 已开仓\n");
             status.append(String.format("  方向: %s\n", position.getDirection()));
-            status.append(String.format("  金额: %s USDT\n", position.getAmount()));
+            // 修复：amount 存储的是币的数量，不是 USDT 金额
+            // 计算实际的 USDT 金额 = 币数量 × 现货价格
+            BigDecimal positionUsdtAmount = position.getAmount().multiply(position.getEntrySpotPrice());
+            status.append(String.format("  金额: %s %s (约 %s USDT)\n", 
+                position.getAmount().setScale(4, RoundingMode.HALF_UP), 
+                symbol,
+                positionUsdtAmount.setScale(2, RoundingMode.HALF_UP)));
             status.append(String.format("  开仓价格: 现货=%s, 合约=%s\n", 
                 position.getEntrySpotPrice(), position.getEntrySwapPrice()));
-            status.append(String.format("  开仓价差率: %s%%\n", position.getEntrySpreadRate()));
+            // 修复：显示实际的开仓价差率（entrySpreadRate 已经是百分比值，不需要再乘以 100）
+            if (position.getEntrySpreadRate() != null) {
+                status.append(String.format("  开仓价差率: %s%%\n", 
+                    position.getEntrySpreadRate().setScale(3, RoundingMode.HALF_UP)));
+            } else {
+                status.append("  开仓价差率: 未记录\n");
+            }
+            
+            // ⭐ 新增：显示当前价差（如果有最新的套利机会数据）
+            if (opportunity != null) {
+                // 使用科学计数法或自适应精度显示价格
+                String spotPriceStr = formatPrice(opportunity.spotPrice);
+                String futuresPriceStr = formatPrice(opportunity.futuresPrice);
+                // spreadRate 已经是百分比值，直接显示即可
+                status.append(String.format("  📊 当前价差: 现货=%s, 合约=%s, 价差率=%s%%\n",
+                    spotPriceStr,
+                    futuresPriceStr,
+                    opportunity.spreadRate.setScale(3, RoundingMode.HALF_UP)));
+            }
             
             // ⭐ 重点：每5秒打印预估利润率
             if (position.getUnrealizedProfit() != null) {
+                // 计算利润率（基于 USDT 金额）
                 BigDecimal profitRate = position.getUnrealizedProfit()
-                    .divide(position.getAmount(), 6, RoundingMode.HALF_UP)
+                    .divide(positionUsdtAmount, 6, RoundingMode.HALF_UP)
                     .multiply(new BigDecimal("100"));
                 status.append(String.format("  💰 预估利润: %s USDT (利润率: %s%%)\n", 
                     position.getUnrealizedProfit().setScale(4, RoundingMode.HALF_UP),
@@ -1221,5 +1296,28 @@ public class TradingDecisionProcessor
         
         // 更新最后日志时间
         lastStatusLogTime.update(now);
+    }
+    
+    /**
+     * 格式化价格显示（自适应精度）
+     * 对于非常小的价格（如 SATS），使用科学计数法或更高精度
+     */
+    private String formatPrice(BigDecimal price) {
+        if (price == null) {
+            return "N/A";
+        }
+        
+        // 如果价格小于 0.000001，使用科学计数法
+        if (price.compareTo(new BigDecimal("0.000001")) < 0) {
+            return String.format("%.2E", price);  // 科学计数法，2位小数
+        }
+        // 如果价格小于 0.01，使用 8 位小数
+        else if (price.compareTo(new BigDecimal("0.01")) < 0) {
+            return price.setScale(8, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString();
+        }
+        // 否则使用 6 位小数
+        else {
+            return price.setScale(6, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString();
+        }
     }
 }

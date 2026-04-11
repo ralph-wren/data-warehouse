@@ -42,17 +42,26 @@ public class OrderUpdateParser extends RichMapFunction<String, OrderUpdate> {
         order.side = orderNode.get("side").asText();
         order.state = orderNode.get("state").asText();
         
-        // 成交价格和数量
+        // 成交价格和数量（添加空值检查，避免 NumberFormatException）
         if (orderNode.has("fillPx")) {
-            order.fillPrice = new BigDecimal(orderNode.get("fillPx").asText());
+            String fillPxStr = orderNode.get("fillPx").asText();
+            if (fillPxStr != null && !fillPxStr.isEmpty() && !fillPxStr.equals("0")) {
+                order.fillPrice = new BigDecimal(fillPxStr);
+            }
         }
         if (orderNode.has("fillSz")) {
-            order.fillSize = new BigDecimal(orderNode.get("fillSz").asText());
+            String fillSzStr = orderNode.get("fillSz").asText();
+            if (fillSzStr != null && !fillSzStr.isEmpty() && !fillSzStr.equals("0")) {
+                order.fillSize = new BigDecimal(fillSzStr);
+            }
         }
         
-        // 手续费信息
+        // 手续费信息（添加空值检查）
         if (orderNode.has("fee")) {
-            order.fee = new BigDecimal(orderNode.get("fee").asText());
+            String feeStr = orderNode.get("fee").asText();
+            if (feeStr != null && !feeStr.isEmpty() && !feeStr.equals("0")) {
+                order.fee = new BigDecimal(feeStr);
+            }
         }
         if (orderNode.has("feeCcy")) {
             order.feeCcy = orderNode.get("feeCcy").asText();

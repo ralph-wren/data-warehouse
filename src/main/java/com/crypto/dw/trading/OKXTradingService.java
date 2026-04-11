@@ -321,12 +321,21 @@ public class OKXTradingService implements Serializable {
      * @param leverage 杠杆倍数
      * @return 订单ID
      */
-    public String sellSpot(String symbol, BigDecimal amountUsdt, BigDecimal price, int leverage) {
+    /**
+     * 做空现货（卖出）- 使用币数量下单
+     * 
+     * @param symbol 币种符号（如 BTC）
+     * @param size 币的数量
+     * @param price 当前价格（用于日志）
+     * @param leverage 杠杆倍数
+     * @return 订单ID，失败返回 null
+     */
+    public String sellSpot(String symbol, BigDecimal size, BigDecimal price, int leverage) {
         try {
             // 拼接完整交易对: BTC → BTC-USDT
             String instId = symbol + "-USDT";
-            logger.info("📉 做空现货（卖出）: {} | 金额: {} USDT | 价格: {} | 杠杆: {}x", 
-                instId, amountUsdt, price, leverage);
+            logger.info("📉 做空现货（卖出）: {} | 数量: {} {} | 价格: {} | 杠杆: {}x", 
+                instId, size, symbol, price, leverage);
             
             // 检查是否支持杠杆交易（优先使用内存缓存）
             boolean supportsMargin = false;
@@ -345,10 +354,6 @@ public class OKXTradingService implements Serializable {
             // 支持杠杆，设置杠杆倍数
             setMarginLeverage(instId, leverage);
             logger.info("✓ {} 支持杠杆交易，已设置杠杆倍数: {}x", instId, leverage);
-            
-            // 根据 USDT 金额和价格计算币的数量: 数量 = USDT金额 / 价格（向上取整）
-            BigDecimal size = amountUsdt.divide(price, 8, RoundingMode.UP);
-            logger.info("💰 计算数量: {} USDT ÷ {} = {} {}", amountUsdt, price, size, symbol);
             
             // 从 Redis 查询借币利息率
             if (marginCache != null && marginCache.getRedisManager() != null) {
@@ -1041,6 +1046,68 @@ public class OKXTradingService implements Serializable {
      * @param symbol 币种名称,如 COMP (方法内部会拼接为 COMP-USDT-SWAP)
      * @return 交易对信息,失败返回 null
      */
+    /**
+     * 计算符合合约要求的币数量
+     * 
+     * 功能：
+     * 1. 根据 USDT 金额和价格计算币数量
+     * 2. 按合约最小下单单位（ctVal）向上取整
+     * 3. 确保符合合约 lot size 要求
+     * 
+     * @param symbol 币种符号（如 BTC）
+     * @param usdtAmount USDT 金额
+     * @param price 当前价格
+     * @return 符合合约要求的币数量，如果无法计算则返回 null
+     */
+    public BigDecimal calculateValidCoinAmount(String symbol, BigDecimal usdtAmount, BigDecimal price) {
+        try {
+            // 1. 获取交易对信息
+            InstrumentInfo info = getInstrumentInfo(symbol);
+            if (info == null) {
+                logger.error("❌ 无法获取 {} 的交易对信息", symbol);
+                return null;
+            }
+            
+            // 2. 计算初始币数量: coinAmount = usdtAmount / price
+            BigDecimal rawCoinAmount = usdtAmount.divide(price, 8, RoundingMode.DOWN);
+            logger.debug("💰 初始计算: {} USDT ÷ {} = {} {}", usdtAmount, price, rawCoinAmount, symbol);
+            
+            // 3. 计算需要的张数: contractSize = coinAmount / ctVal
+            BigDecimal rawContractSize = rawCoinAmount.divide(info.ctVal, 8, RoundingMode.DOWN);
+            logger.debug("📊 初始张数: {} {} ÷ {} (ctVal) = {} 张", rawCoinAmount, symbol, info.ctVal, rawContractSize);
+            
+            // 4. 按 lotSz 向上取整，确保符合 lot size 要求
+            // 向上取整公式: ceil(rawContractSize / lotSz) * lotSz
+            BigDecimal lots = rawContractSize.divide(info.lotSz, 0, RoundingMode.UP);
+            BigDecimal finalContractSize = lots.multiply(info.lotSz);
+            logger.debug("📐 向上取整: ceil({} ÷ {} (lotSz)) × {} = {} 张", 
+                rawContractSize, info.lotSz, info.lotSz, finalContractSize);
+            
+            // 5. 转换回币数量: finalCoinAmount = contractSize * ctVal
+            BigDecimal finalCoinAmount = finalContractSize.multiply(info.ctVal);
+            logger.info("✓ 最终币数量: {} 张 × {} (ctVal) = {} {}", 
+                finalContractSize, info.ctVal, finalCoinAmount, symbol);
+            
+            // 6. 检查是否为0
+            if (finalCoinAmount.compareTo(BigDecimal.ZERO) <= 0) {
+                logger.error("❌ 计算的币数量为0: symbol={}, usdtAmount={}, price={}", 
+                    symbol, usdtAmount, price);
+                return null;
+            }
+            
+            // 7. 计算实际 USDT 金额（用于日志对比）
+            BigDecimal actualUsdtAmount = finalCoinAmount.multiply(price);
+            logger.info("💵 实际 USDT 金额: {} {} × {} = {} USDT (原始: {} USDT)", 
+                finalCoinAmount, symbol, price, actualUsdtAmount, usdtAmount);
+            
+            return finalCoinAmount;
+            
+        } catch (Exception e) {
+            logger.error("计算币数量失败: {}", e.getMessage(), e);
+            return null;
+        }
+    }
+    
     public InstrumentInfo getInstrumentInfo(String symbol) {
         try {
             String instId = symbol + "-USDT-SWAP";

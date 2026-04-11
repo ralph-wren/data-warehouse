@@ -535,8 +535,23 @@ public class TradingDecisionProcessor
         String direction = null;
         
         try {
-            // 根据 USDT 金额和现货价格计算币的数量（用于合约下单）
-            BigDecimal coinAmount = tradeAmount.divide(opp.spotPrice, 8, RoundingMode.UP);
+            // 计算符合合约要求的币数量
+            // 1. 根据 USDT 金额和价格计算币数量
+            // 2. 按合约最小下单单位（ctVal）向上取整
+            // 3. 确保符合合约 lot size 要求
+            BigDecimal coinAmount = tradingService.calculateValidCoinAmount(opp.symbol, tradeAmount, opp.spotPrice);
+            
+            if (coinAmount == null) {
+                logger.error("❌ 无法计算有效的币数量，取消下单");
+                recordFailure(opp.symbol, "无法计算有效的币数量");
+                
+                String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+                String errorLog = String.format("%s,%s,OPEN,%s,ERROR,N/A,N/A,N/A,FAILED,无法计算有效的币数量",
+                    timestamp, opp.symbol, "UNKNOWN");
+                orderDetailWriter.write(errorLog);
+                return;
+            }
+            
             logger.info("💰 交易金额: {} USDT | 现货价格: {} | 计算币数量: {} {}", 
                 tradeAmount, opp.spotPrice, coinAmount, opp.symbol);
             
@@ -544,8 +559,9 @@ public class TradingDecisionProcessor
                 // 策略 A: 做多现货 + 做空合约（使用配置的杠杆倍数）
                 direction = "LONG_SPOT_SHORT_SWAP";
                 
-                // 先下现货单（传入 USDT 金额）
-                spotOrderId = tradingService.buySpot(opp.symbol, tradeAmount, opp.spotPrice);
+                // 现货和合约都使用相同的币数量下单
+                // 先下现货单（传入币数量）
+                spotOrderId = tradingService.buySpot(opp.symbol, coinAmount, opp.spotPrice);
                 
                 // 检查现货单是否成功
                 if (spotOrderId == null) {
@@ -567,8 +583,9 @@ public class TradingDecisionProcessor
                 // 策略 B: 做空现货 + 做多合约（使用配置的杠杆倍数）
                 direction = "SHORT_SPOT_LONG_SWAP";
                 
-                // 先下现货单（传入 USDT 金额，使用配置的杠杆倍数）
-                spotOrderId = tradingService.sellSpot(opp.symbol, tradeAmount, opp.spotPrice, this.leverage);
+                // 现货和合约都使用相同的币数量下单
+                // 先下现货单（传入币数量，使用配置的杠杆倍数）
+                spotOrderId = tradingService.sellSpot(opp.symbol, coinAmount, opp.spotPrice, this.leverage);
                 
                 // 检查现货单是否成功
                 if (spotOrderId == null) {

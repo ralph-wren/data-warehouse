@@ -58,7 +58,7 @@ public class ArbitrageCalculator
         // 2. 检测系统时间与现货数据的时间差
         long currentSpotTimeDiff = Math.abs(currentTime - spotTime);
         if (currentSpotTimeDiff > TIME_DIFF_THRESHOLD_MS) {
-            logger.warn("⚠️ 系统时间与现货数据时间差超过 2 秒: symbol={}, 系统时间={}, 现货时间={}, 时间差={}ms",
+            logger.debug("⚠️ 系统时间与现货数据时间差超过 2 秒: symbol={}, 系统时间={}, 现货时间={}, 时间差={}ms",
                     spot.symbol, currentTime, spotTime, currentSpotTimeDiff);
         }
         

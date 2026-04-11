@@ -61,7 +61,7 @@ public class OKXOrderWebSocketSource extends RichSourceFunction<String> {
         this.apiKey = config.getString("okx.api.key", "");
         this.secretKey = config.getString("okx.api.secret", "");
         this.passphrase = config.getString("okx.api.passphrase", "");
-        this.isSimulated = config.getBoolean("okx.api.simulated", true);
+        this.isSimulated = config.getBoolean("okx.api.simulated", false);
         this.proxyEnabled = config.getBoolean("okx.proxy.enabled", false);
         this.proxyHost = config.getString("okx.proxy.host", "localhost");
         this.proxyPort = config.getInt("okx.proxy.port", 10809);

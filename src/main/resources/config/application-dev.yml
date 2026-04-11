@@ -26,7 +26,7 @@ okx:
   # 说明：国内访问 OKX WebSocket 可能需要代理
   # 如果连接失败出现 SSL 握手错误，请启用代理
   proxy:
-    enabled: true  # 是否启用代理
+    enabled: false  # 是否启用代理
     host: localhost  # 代理服务器地址
     port: 10809  # 代理服务器端口
   
@@ -34,8 +34,8 @@ okx:
   # 多个交易对对应多个 Kafka 分区，数据会均匀分布
   # 注意：只订阅 OKX 上存在的交易对，避免订阅错误
   symbols:
-    spot: ADA-USDT,TURMP-USDT,ETH-USDT,XRP-USDT,DODGE-USDT
-    swap: ADA-USDT,TURMP-USDT,ETH-USDT,XRP-USDT,DODGE-USDT
+    spot: AT-USDT,ATOM-USDT,AXS-USDT,BABY-USDT,BAND-USDT
+    swap: AT-USDT,ATOM-USDT,AXS-USDT,BABY-USDT,BAND-USDT
 
 # Kafka 配置
 # 注意：本地开发环境使用 localhost
@@ -61,7 +61,7 @@ kafka:
     auto-offset-reset: latest
     enable-auto-commit: false
     max-poll-records: 500
-    startup-mode: earliest  # 消费模式: earliest（从头开始）, latest（从最新开始）, committed（从上次提交位置开始）
+    startup-mode: latest  # 消费模式: earliest（从头开始）, latest（从最新开始）, committed（从上次提交位置开始）
     
     # 每个 Flink 作业使用不同的 Consumer Group ID
     # 这样可以独立管理每个作业的消费进度，避免相互影响
@@ -237,8 +237,12 @@ application:
 arbitrage:
   trading:
     enabled: true                   # 是否启用自动交易(默认关闭,测试通过后再开启)
-    trade-amount: 6              # 单笔交易金额(USDT)
-    max-positions: 5                 # 最大持仓数量
+    trade-amount-usdt: 10           # 单笔交易金额(USDT),会根据当前价格自动计算币的数量
+                                     # 注意: OKX 现货最小下单金额通常是 5-10 USDT,合约最小交易单位是 1 张(1 个币)
+                                     # 建议: 50 USDT 可以满足大部分币种的最小下单要求
+                                     # 对于高价币种(如 BTC, ETH),需要更大的金额
+    leverage: 1                      # 杠杆倍数(默认1倍,现货和合约统一使用)
+    max-positions: 1                 # 最大持仓数量
     open-threshold: 0.005            # 开仓阈值(0.5%)
     close-threshold: 0.002           # 平仓阈值(0.2%)
     order-timeout-seconds: 30        # 订单超时时间(秒)

@@ -349,12 +349,12 @@ public class TradingDecisionProcessor
             if (opp.arbitrageDirection.contains("做多现货")) {
                 // 策略 A: 做多现货 + 做空合约
                 direction = "LONG_SPOT_SHORT_SWAP";
-                spotOrderId = tradingService.buySpot(opp.symbol, tradeAmount);
+                spotOrderId = tradingService.buySpot(opp.symbol, tradeAmount, opp.spotPrice);
                 swapOrderId = tradingService.shortSwap(opp.symbol, tradeAmount, 1);
             } else {
                 // 策略 B: 做空现货 + 做多合约
                 direction = "SHORT_SPOT_LONG_SWAP";
-                spotOrderId = tradingService.sellSpot(opp.symbol, tradeAmount);
+                spotOrderId = tradingService.sellSpot(opp.symbol, tradeAmount, opp.spotPrice);
                 swapOrderId = tradingService.longSwap(opp.symbol, tradeAmount, 1);
             }
             
@@ -405,10 +405,10 @@ public class TradingDecisionProcessor
             String swapOrderId = null;
             
             if ("LONG_SPOT_SHORT_SWAP".equals(pos.getDirection())) {
-                spotOrderId = tradingService.sellSpot(pos.getSymbol(), pos.getAmount());
+                spotOrderId = tradingService.sellSpot(pos.getSymbol(), pos.getAmount(), opp.spotPrice);
                 swapOrderId = tradingService.closeShortSwap(pos.getSymbol(), pos.getAmount());
             } else {
-                spotOrderId = tradingService.buySpot(pos.getSymbol(), pos.getAmount());
+                spotOrderId = tradingService.buySpot(pos.getSymbol(), pos.getAmount(), opp.spotPrice);
                 swapOrderId = tradingService.closeLongSwap(pos.getSymbol(), pos.getAmount());
             }
             

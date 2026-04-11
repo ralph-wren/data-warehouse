@@ -2,6 +2,7 @@ package com.crypto.dw.flink;
 
 import com.crypto.dw.config.ConfigLoader;
 import com.crypto.dw.flink.factory.FlinkEnvironmentFactory;
+import com.crypto.dw.flink.source.OKXRestApiSource;
 import com.crypto.dw.flink.source.OKXWebSocketSourceFunction;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -21,9 +22,10 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.List;
 
 /**
- * Flink 数据采集作业
+ * Flink 数据采集作业 (增强版 - 支持从 Redis 读取订阅列表)
  * <p>
  * 从 OKX WebSocket 接收实时行情数据并发送到 Kafka
  * <p>
@@ -34,31 +36,46 @@ import java.util.List;
  * - 自动重连和错误处理
  * - 支持 Flink 的 Checkpoint 机制
  * - 统一的监控和管理
+ * - 【新增】支持从 Redis 读取订阅列表 (由 FlinkPriceSpreadCalculatorJob 写入)
  * <p>
  * 数据流:
  * <pre>
- * OKX WebSocket
+ * Redis (crypto:top_spread_symbols) - 读取价差最大的币对列表
+ *     │
+ *     ↓
+ * OKX WebSocket (订阅币对)
  *     │
  *     ├─→ 现货数据 → Kafka Topic: crypto-ticker-spot
  *     │
  *     └─→ 合约数据 → Kafka Topic: crypto-ticker-swap
  * </pre>
  * <p>
+ * 配合使用:
+ * 1. 先启动 FlinkPriceSpreadCalculatorJob (计算价差并写入 Redis)
+ * 2. 再启动 FlinkTickerCollectorJob (从 Redis 读取币对并订阅)
+ * 3. 如果 Redis 中没有数据,则使用配置文件或默认币对
+ * <p>
  * 优势:
  * - 利用 Flink 的容错机制
  * - 统一管理所有数据流
  * - 更好的监控和管理
  * - 支持动态扩缩容
+ * - 自动追踪价差最大的币对,无需手动配置
  * <p>
  * 使用方法:
  * <pre>
- * # 本地运行
- * mvn clean compile
+ * # 方式1: 从 Redis 读取订阅列表 (推荐)
+ * # 先启动价差计算作业
+ * bash run-flink-price-spread-calculator.sh
+ * # 再启动数据采集作业
  * bash run-flink-collector.sh
  *
- * # 指定交易对
+ * # 方式2: 手动指定交易对 (静态订阅模式)
  * bash run-flink-collector.sh BTC-USDT ETH-USDT SOL-USDT
  * </pre>
+ * 
+ * @author Kiro
+ * @date 2026-04-11 (增强版)
  */
 public class FlinkTickerCollectorJob {
 
@@ -97,9 +114,15 @@ public class FlinkTickerCollectorJob {
         FlinkEnvironmentFactory envFactory = new FlinkEnvironmentFactory(config);
         StreamExecutionEnvironment env = envFactory.createStreamEnvironment("flink-data-collector-job", 8085);
 
-        // 获取订阅的交易对列表
-        List<String> symbols = getSymbols(args, config);
-        logger.info("Subscribing to symbols: {}", symbols);
+        // ========================================
+        // 步骤1: 启动时计算一次价差,获取价差最大的前10个币对
+        // ========================================
+        logger.info("==========================================");
+        logger.info("计算价差,获取价差最大的币对...");
+        logger.info("==========================================");
+        
+        List<String> symbols = getSymbolsWithSpreadCalculation(args, config);
+        logger.info("订阅币对列表 ({}个): {}", symbols.size(), symbols);
 
         // 获取 Kafka 配置
         String kafkaBootstrapServers = config.getString("kafka.bootstrap-servers");
@@ -231,7 +254,13 @@ public class FlinkTickerCollectorJob {
     }
 
     /**
-     * 获取订阅的交易对列表
+     * 获取订阅的交易对列表 (支持价差计算)
+     * <p>
+     * 逻辑:
+     * 1. 如果命令行提供了交易对,直接使用
+     * 2. 否则,调用 OKX REST API 计算价差,取价差最大的前10个币对
+     * 3. 如果 API 调用失败,使用配置文件中的交易对
+     * 4. 如果配置文件也没有,使用默认交易对
      * <p>
      * 注意：为了让数据均匀分布到 Kafka 的多个分区，建议订阅多个交易对
      * Kafka 使用 key（交易对名称）的 hash 值来决定分区，不同的交易对会分布到不同分区
@@ -240,7 +269,7 @@ public class FlinkTickerCollectorJob {
      * @param config 配置加载器
      * @return 交易对列表
      */
-    private static List<String> getSymbols(String[] args, ConfigLoader config) {
+    private static List<String> getSymbolsWithSpreadCalculation(String[] args, ConfigLoader config) {
         // 过滤掉 --env 和 --APP_ENV 参数
         List<String> filteredArgs = new ArrayList<>();
         for (int i = 0; i < args.length; i++) {
@@ -253,8 +282,20 @@ public class FlinkTickerCollectorJob {
 
         // 如果命令行参数提供了交易对，使用命令行参数
         if (!filteredArgs.isEmpty()) {
-            logger.info("Using symbols from command line arguments: {}", filteredArgs);
+            logger.info("使用命令行参数指定的交易对: {}", filteredArgs);
             return filteredArgs;
+        }
+        
+        // 尝试通过 REST API 计算价差,获取价差最大的前10个币对
+        try {
+            logger.info("未指定交易对,开始计算价差...");
+            List<String> topSpreadSymbols = calculateTopSpreadSymbols(config, 10);
+            if (topSpreadSymbols != null && !topSpreadSymbols.isEmpty()) {
+                logger.info("价差计算完成,获取到 {} 个币对: {}", topSpreadSymbols.size(), topSpreadSymbols);
+                return topSpreadSymbols;
+            }
+        } catch (Exception e) {
+            logger.warn("价差计算失败: {}, 将使用配置文件或默认交易对", e.getMessage());
         }
 
         // 尝试从配置文件读取（支持逗号分隔的字符串）
@@ -285,5 +326,51 @@ public class FlinkTickerCollectorJob {
         List<String> defaultSymbols = Arrays.asList("BTC-USDT", "ETH-USDT", "SOL-USDT", "BNB-USDT");
         logger.info("Config not found or empty, using default symbols: {}", defaultSymbols);
         return defaultSymbols;
+    }
+
+    /**
+     * 计算价差最大的币对
+     * 
+     * @param config 配置加载器
+     * @param topN 取前 N 个
+     * @return 币对列表 (格式: BTC-USDT, ETH-USDT, ...)
+     */
+    private static List<String> calculateTopSpreadSymbols(ConfigLoader config, int topN) throws Exception {
+        logger.info("开始调用 OKX REST API 获取价格数据...");
+        
+        // 创建临时的 REST API Source 实例
+        OKXRestApiSource apiSource = new OKXRestApiSource(config, 0, topN);
+        
+        // 初始化 Source (调用 open 方法)
+        org.apache.flink.configuration.Configuration flinkConfig = new org.apache.flink.configuration.Configuration();
+        apiSource.open(flinkConfig);
+        
+        // 获取现货价格
+        java.util.Map<String, java.math.BigDecimal> spotPrices = apiSource.fetchSpotPrices();
+        logger.info("获取到 {} 个现货价格", spotPrices.size());
+        
+        // 获取合约价格
+        java.util.Map<String, java.math.BigDecimal> swapPrices = apiSource.fetchSwapPrices();
+        logger.info("获取到 {} 个合约价格", swapPrices.size());
+        
+        // 计算价差
+        java.util.List<OKXRestApiSource.PriceSpreadInfo> spreadList = 
+            apiSource.calculateSpreads(spotPrices, swapPrices);
+        logger.info("计算出 {} 个币种的价差", spreadList.size());
+        
+        // 取前 N 个
+        List<String> topSymbols = new ArrayList<>();
+        int count = Math.min(topN, spreadList.size());
+        for (int i = 0; i < count; i++) {
+            OKXRestApiSource.PriceSpreadInfo info = spreadList.get(i);
+            String symbol = info.symbol + "-USDT";
+            topSymbols.add(symbol);
+            
+            logger.info("价差排名 {}: {} - 现货: {}, 合约: {}, 价差率: {}%", 
+                i + 1, symbol, info.spotPrice, info.swapPrice, 
+                info.spreadRate.multiply(new java.math.BigDecimal("100")));
+        }
+        
+        return topSymbols;
     }
 }

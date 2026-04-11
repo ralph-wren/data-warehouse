@@ -417,6 +417,54 @@ public class RedisConnectionManager implements Serializable {
         }
     }
     
+    // ========== 计数器操作 ==========
+    
+    /**
+     * 原子性递增计数器
+     * 
+     * @param key 键
+     * @return 递增后的值，失败返回 -1
+     */
+    public long incr(String key) {
+        try (Jedis jedis = getConnection()) {
+            return jedis.incr(key);
+        } catch (Exception e) {
+            logger.error("Redis INCR 操作失败: key={}, error={}", key, e.getMessage());
+            return -1;
+        }
+    }
+    
+    /**
+     * 原子性递减计数器
+     * 
+     * @param key 键
+     * @return 递减后的值，失败返回 -1
+     */
+    public long decr(String key) {
+        try (Jedis jedis = getConnection()) {
+            return jedis.decr(key);
+        } catch (Exception e) {
+            logger.error("Redis DECR 操作失败: key={}, error={}", key, e.getMessage());
+            return -1;
+        }
+    }
+    
+    /**
+     * 获取计数器的值
+     * 
+     * @param key 键
+     * @return 计数器的值，如果不存在或失败返回 0
+     */
+    public long getCounter(String key) {
+        try (Jedis jedis = getConnection()) {
+            String value = jedis.get(key);
+            return value == null ? 0 : Long.parseLong(value);
+        } catch (Exception e) {
+            logger.error("Redis GET 计数器操作失败: key={}, error={}", key, e.getMessage());
+            return 0;
+        }
+    }
+    
     // ========== 连接池管理 ==========
     
     /**

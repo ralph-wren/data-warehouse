@@ -80,6 +80,18 @@ public class PositionState implements Serializable {
      */
     private long lastLogTime;
     
+    /**
+     * 借币利息率（小时利率）
+     * 仅在做空现货时有值,用于计算借币成本
+     */
+    private BigDecimal borrowInterestRate;
+    
+    /**
+     * 开仓手续费（USDT）
+     * 包含现货和合约的开仓手续费总和
+     */
+    private BigDecimal openFeeUsdt;
+    
     // Getters and Setters
     
     public String getSymbol() {
@@ -184,6 +196,22 @@ public class PositionState implements Serializable {
     
     public void setLastLogTime(long lastLogTime) {
         this.lastLogTime = lastLogTime;
+    }
+    
+    public BigDecimal getBorrowInterestRate() {
+        return borrowInterestRate;
+    }
+    
+    public void setBorrowInterestRate(BigDecimal borrowInterestRate) {
+        this.borrowInterestRate = borrowInterestRate;
+    }
+    
+    public BigDecimal getOpenFeeUsdt() {
+        return openFeeUsdt;
+    }
+    
+    public void setOpenFeeUsdt(BigDecimal openFeeUsdt) {
+        this.openFeeUsdt = openFeeUsdt;
     }
     
     @Override

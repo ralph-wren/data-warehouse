@@ -26,8 +26,22 @@ public class PositionState implements Serializable {
     
     /**
      * 持仓金额（USDT）
+     * @deprecated 使用 spotSize 和 contractSize 代替
      */
+    @Deprecated
     private BigDecimal amount;
+    
+    /**
+     * 现货数量（币的数量）
+     * 例如: 5 BTC, 100 ETH
+     */
+    private BigDecimal spotSize;
+    
+    /**
+     * 合约张数
+     * 例如: 50 张, 100 张
+     */
+    private BigDecimal contractSize;
     
     /**
      * 开仓时的价差率（%）
@@ -116,6 +130,22 @@ public class PositionState implements Serializable {
     
     public void setAmount(BigDecimal amount) {
         this.amount = amount;
+    }
+    
+    public BigDecimal getSpotSize() {
+        return spotSize;
+    }
+    
+    public void setSpotSize(BigDecimal spotSize) {
+        this.spotSize = spotSize;
+    }
+    
+    public BigDecimal getContractSize() {
+        return contractSize;
+    }
+    
+    public void setContractSize(BigDecimal contractSize) {
+        this.contractSize = contractSize;
     }
     
     public BigDecimal getEntrySpreadRate() {

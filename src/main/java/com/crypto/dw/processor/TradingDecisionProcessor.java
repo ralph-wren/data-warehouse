@@ -1,10 +1,12 @@
 package com.crypto.dw.processor;
 
 import com.crypto.dw.config.ConfigLoader;
-import com.crypto.dw.model.ArbitrageOpportunity;
-import com.crypto.dw.model.OrderUpdate;
-import com.crypto.dw.model.PendingOrder;
+import com.crypto.dw.flink.async.AsyncCsvWriter;
+import com.crypto.dw.flink.model.ArbitrageOpportunity;
+import com.crypto.dw.flink.model.OrderUpdate;
+import com.crypto.dw.flink.model.PendingOrder;
 import com.crypto.dw.model.TradeRecord;
+import com.crypto.dw.trading.MarginSupportCache;
 import com.crypto.dw.trading.OKXTradingService;
 import com.crypto.dw.trading.OpportunityTracker;
 import com.crypto.dw.trading.PositionState;
@@ -20,6 +22,8 @@ import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 
 
 
@@ -46,12 +50,25 @@ public class TradingDecisionProcessor
     private final long maxHoldTimeMs;
     private final BigDecimal maxLossPerTrade;
     
+    // 黑名单配置
+    private final boolean blacklistEnabled;
+    private final long blacklistDurationMs;
+    private final int maxFailures;
+    
     private transient OKXTradingService tradingService;
+    private transient MarginSupportCache marginCache;  // 杠杆支持信息缓存
+    private transient AsyncCsvWriter orderDetailWriter;  // 异步订单明细日志
+    private transient AsyncCsvWriter positionWriter;     // 异步持仓日志
+    
     private transient ValueState<PositionState> positionState;
     private transient MapState<String, PendingOrder> pendingOrders;
     private transient ValueState<OpportunityTracker> opportunityTracker;
     private transient ValueState<Long> lastStatusLogTime;  // 最后一次状态日志输出时间
     private transient ValueState<String> currentSymbol;    // 当前币对名称
+    
+    // 失败黑名单状态
+    private transient MapState<String, Integer> failureCount;  // 失败次数统计
+    private transient MapState<String, Long> blacklistExpiry;  // 黑名单过期时间
     
     // 状态日志输出间隔: 30秒
     private static final long STATUS_LOG_INTERVAL_MS = 30000;
@@ -59,7 +76,7 @@ public class TradingDecisionProcessor
     public TradingDecisionProcessor(ConfigLoader config) {
         this.config = config;
         this.tradingEnabled = config.getBoolean("arbitrage.trading.enabled", false);
-        this.tradeAmount = new BigDecimal(config.getString("arbitrage.trading.trade-amount", "100"));
+        this.tradeAmount = new BigDecimal(config.getString("arbitrage.trading.trade-amount-usdt", "100"));
         this.leverage = config.getInt("arbitrage.trading.leverage", 1);  // 读取杠杆倍数配置,默认1倍
         this.openThreshold = new BigDecimal(config.getString("arbitrage.trading.open-threshold", "0.005"));
         this.closeThreshold = new BigDecimal(config.getString("arbitrage.trading.close-threshold", "0.002"));
@@ -68,12 +85,39 @@ public class TradingDecisionProcessor
         this.maxHoldTimeMs = maxHoldMinutes * 60 * 1000L;
         
         this.maxLossPerTrade = new BigDecimal(config.getString("arbitrage.trading.max-loss-per-trade", "10"));
+        
+        // 读取黑名单配置
+        this.blacklistEnabled = config.getBoolean("arbitrage.trading.blacklist.enabled", true);
+        int blacklistDurationMinutes = config.getInt("arbitrage.trading.blacklist.duration-minutes", 60);
+        this.blacklistDurationMs = blacklistDurationMinutes * 60 * 1000L;
+        this.maxFailures = config.getInt("arbitrage.trading.blacklist.max-failures", 3);
     }
     
     @Override
     public void open(Configuration parameters) {
-        // 初始化交易服务
-        tradingService = new OKXTradingService(config);
+        // 初始化杠杆支持信息缓存（从 Redis 加载到内存）
+        marginCache = new MarginSupportCache(config);
+        
+        // 初始化交易服务（传入杠杆缓存）
+        tradingService = new OKXTradingService(config, marginCache);
+        
+        // 初始化异步 CSV 写入器
+        String logDir = config.getString("arbitrage.trading.log-dir", "./logs/trading");
+        
+        // 订单明细日志表头
+        String[] orderHeaders = {
+            "timestamp", "symbol", "action", "direction", "order_type",
+            "order_id", "price", "amount", "status", "message"
+        };
+        orderDetailWriter = new AsyncCsvWriter(logDir, "order_detail", orderHeaders, 10000);
+        
+        // 持仓日志表头
+        String[] positionHeaders = {
+            "timestamp", "symbol", "action", "direction", "amount",
+            "entry_spot_price", "entry_swap_price", "exit_spot_price", "exit_swap_price",
+            "profit", "profit_rate", "hold_time_seconds", "unrealized_profit"
+        };
+        positionWriter = new AsyncCsvWriter(logDir, "position", positionHeaders, 10000);
         
         // 初始化持仓状态
         ValueStateDescriptor<PositionState> positionDescriptor = new ValueStateDescriptor<>(
@@ -111,11 +155,50 @@ public class TradingDecisionProcessor
         );
         currentSymbol = getRuntimeContext().getState(symbolDescriptor);
         
+        // 初始化失败黑名单状态
+        MapStateDescriptor<String, Integer> failureCountDescriptor = new MapStateDescriptor<>(
+            "failure-count",
+            String.class,
+            Integer.class
+        );
+        failureCount = getRuntimeContext().getMapState(failureCountDescriptor);
+        
+        MapStateDescriptor<String, Long> blacklistExpiryDescriptor = new MapStateDescriptor<>(
+            "blacklist-expiry",
+            String.class,
+            Long.class
+        );
+        blacklistExpiry = getRuntimeContext().getMapState(blacklistExpiryDescriptor);
+        
         logger.info("TradingDecisionProcessor 初始化完成");
         logger.info("  交易开关: {}", tradingEnabled ? "开启" : "关闭");
         logger.info("  交易金额: {} USDT", tradeAmount);
         logger.info("  开仓阈值: {}%", openThreshold.multiply(new BigDecimal("100")));
         logger.info("  平仓阈值: {}%", closeThreshold.multiply(new BigDecimal("100")));
+        logger.info("  杠杆支持信息: {} 个币种已加载", marginCache.size());
+        logger.info("  黑名单机制: {}", blacklistEnabled ? "启用" : "禁用");
+        if (blacklistEnabled) {
+            logger.info("  黑名单持续时间: {} 分钟", blacklistDurationMs / 60000);
+            logger.info("  最大失败次数: {}", maxFailures);
+        }
+    }
+    
+    @Override
+    public void close() throws Exception {
+        // 关闭异步 CSV 写入器
+        if (orderDetailWriter != null) {
+            orderDetailWriter.close();
+        }
+        if (positionWriter != null) {
+            positionWriter.close();
+        }
+        
+        // 关闭杠杆支持信息缓存
+        if (marginCache != null) {
+            marginCache.close();
+        }
+        
+        logger.info("TradingDecisionProcessor 已关闭");
     }
     
     @Override
@@ -147,6 +230,12 @@ public class TradingDecisionProcessor
         
         // 决策 1: 开仓逻辑
         if (position == null || !position.isOpen()) {
+            // 检查是否在黑名单中
+            if (isInBlacklist(opportunity.symbol)) {
+                // 在黑名单中,跳过
+                return;
+            }
+            
             if (shouldOpen(opportunity)) {
                 // 检查是否是新的套利机会
                 if (tracker == null || !tracker.isActive()) {
@@ -263,6 +352,79 @@ public class TradingDecisionProcessor
     private boolean shouldOpen(ArbitrageOpportunity opp) {
         BigDecimal spreadRate = opp.spreadRate.divide(new BigDecimal("100"), 6, RoundingMode.HALF_UP);
         return spreadRate.abs().compareTo(openThreshold) > 0;
+    }
+    
+    /**
+     * 检查币对是否在黑名单中
+     */
+    private boolean isInBlacklist(String symbol) throws Exception {
+        if (!blacklistEnabled) {
+            return false;
+        }
+        
+        Long expiry = blacklistExpiry.get(symbol);
+        if (expiry == null) {
+            return false;
+        }
+        
+        long now = System.currentTimeMillis();
+        if (now > expiry) {
+            // 黑名单已过期,清除
+            blacklistExpiry.remove(symbol);
+            failureCount.remove(symbol);
+            logger.info("⏰ 黑名单过期: {} | 已移出黑名单", symbol);
+            return false;
+        }
+        
+        return true;
+    }
+    
+    /**
+     * 记录失败并检查是否需要加入黑名单
+     */
+    private void recordFailure(String symbol, String reason) throws Exception {
+        if (!blacklistEnabled) {
+            return;
+        }
+        
+        // 增加失败次数
+        Integer count = failureCount.get(symbol);
+        count = (count == null) ? 1 : count + 1;
+        failureCount.put(symbol, count);
+        
+        logger.warn("⚠ 交易失败: {} | 失败次数: {} / {} | 原因: {}", 
+            symbol, count, maxFailures, reason);
+        
+        // 检查是否需要加入黑名单
+        if (count >= maxFailures) {
+            long expiry = System.currentTimeMillis() + blacklistDurationMs;
+            blacklistExpiry.put(symbol, expiry);
+            
+            long expiryMinutes = blacklistDurationMs / 60000;
+            logger.error("🚫 加入黑名单: {} | 失败次数: {} | 持续时间: {} 分钟 | 原因: {}", 
+                symbol, count, expiryMinutes, reason);
+            
+            // 异步写入日志
+            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+            String errorLog = String.format("%s,%s,BLACKLIST,N/A,ERROR,N/A,N/A,N/A,BLACKLISTED,失败%d次加入黑名单:%s",
+                timestamp, symbol, count, reason.replace(",", ";"));
+            orderDetailWriter.writeAsync(errorLog);
+        }
+    }
+    
+    /**
+     * 清除失败计数(成功交易后调用)
+     */
+    private void clearFailureCount(String symbol) throws Exception {
+        if (!blacklistEnabled) {
+            return;
+        }
+        
+        Integer count = failureCount.get(symbol);
+        if (count != null && count > 0) {
+            failureCount.remove(symbol);
+            logger.info("✓ 清除失败计数: {} | 之前失败次数: {}", symbol, count);
+        }
     }
     
     private boolean shouldClose(ArbitrageOpportunity opp, PositionState pos) {
@@ -386,12 +548,51 @@ public class TradingDecisionProcessor
                 tempPosition.setLastLogTime(System.currentTimeMillis());
                 positionState.update(tempPosition);
                 
+                // 异步写入订单明细日志
+                String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+                
+                // 现货订单日志
+                String spotLog = String.format("%s,%s,OPEN,%s,SPOT,%s,%s,%s,PENDING,订单已提交",
+                    timestamp, opp.symbol, direction, spotOrderId, 
+                    opp.spotPrice, tradeAmount);
+                orderDetailWriter.writeAsync(spotLog);
+                
+                // 合约订单日志
+                String swapLog = String.format("%s,%s,OPEN,%s,SWAP,%s,%s,%s,PENDING,订单已提交",
+                    timestamp, opp.symbol, direction, swapOrderId, 
+                    opp.futuresPrice, tradeAmount);
+                orderDetailWriter.writeAsync(swapLog);
+                
                 logger.info("📝 订单已提交: spotOrderId={}, swapOrderId={}", spotOrderId, swapOrderId);
             } else {
                 logger.warn("⚠ 订单提交失败,未创建持仓状态");
             }
         } catch (Exception e) {
             logger.error("❌ 开仓失败: {}", e.getMessage(), e);
+            
+            // 记录失败
+            String errorMsg = e.getMessage();
+            if (errorMsg != null) {
+                // 检查是否是余额不足等致命错误
+                if (errorMsg.contains("Insufficient") || errorMsg.contains("51008")) {
+                    recordFailure(opp.symbol, "余额不足");
+                } else if (errorMsg.contains("51001")) {
+                    recordFailure(opp.symbol, "订单数量不符合要求");
+                } else if (errorMsg.contains("51004")) {
+                    recordFailure(opp.symbol, "交易对不存在或已下线");
+                } else {
+                    recordFailure(opp.symbol, errorMsg);
+                }
+            } else {
+                recordFailure(opp.symbol, "未知错误");
+            }
+            
+            // 异步写入失败日志
+            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+            String errorLog = String.format("%s,%s,OPEN,%s,ERROR,N/A,N/A,N/A,FAILED,%s",
+                timestamp, opp.symbol, direction != null ? direction : "UNKNOWN", 
+                errorMsg != null ? errorMsg.replace(",", ";") : "未知错误");
+            orderDetailWriter.writeAsync(errorLog);
         }
     }
     
@@ -427,10 +628,32 @@ public class TradingDecisionProcessor
                 pendingOrders.put(spotOrderId, pending);
                 pendingOrders.put(swapOrderId, pending);
                 
+                // 异步写入订单明细日志
+                String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+                
+                // 现货订单日志
+                String spotLog = String.format("%s,%s,CLOSE,%s,SPOT,%s,%s,%s,PENDING,平仓订单已提交",
+                    timestamp, pos.getSymbol(), pos.getDirection(), spotOrderId, 
+                    opp.spotPrice, pos.getAmount());
+                orderDetailWriter.writeAsync(spotLog);
+                
+                // 合约订单日志
+                String swapLog = String.format("%s,%s,CLOSE,%s,SWAP,%s,%s,%s,PENDING,平仓订单已提交",
+                    timestamp, pos.getSymbol(), pos.getDirection(), swapOrderId, 
+                    opp.futuresPrice, pos.getAmount());
+                orderDetailWriter.writeAsync(swapLog);
+                
                 logger.info("📝 平仓订单已提交: spotOrderId={}, swapOrderId={}", spotOrderId, swapOrderId);
             }
         } catch (Exception e) {
             logger.error("❌ 平仓失败: {}", e.getMessage(), e);
+            
+            // 异步写入失败日志
+            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+            String errorLog = String.format("%s,%s,CLOSE,%s,ERROR,N/A,N/A,N/A,FAILED,%s",
+                timestamp, pos.getSymbol(), pos.getDirection(), 
+                e.getMessage().replace(",", ";"));
+            orderDetailWriter.writeAsync(errorLog);
         }
     }
     
@@ -470,6 +693,9 @@ public class TradingDecisionProcessor
         
         logger.info("✅ 开仓确认: {}", pending.symbol);
         
+        // 清除失败计数
+        clearFailureCount(pending.symbol);
+        
         // 更新持仓状态
         PositionState position = new PositionState();
         position.setSymbol(pending.symbol);
@@ -481,6 +707,13 @@ public class TradingDecisionProcessor
         position.setOpenTime(System.currentTimeMillis());
         
         positionState.update(position);
+        
+        // 异步写入持仓日志
+        String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        String posLog = String.format("%s,%s,OPEN,%s,%s,%s,%s,N/A,N/A,N/A,N/A,N/A,N/A",
+            timestamp, pending.symbol, "LONG_SPOT_SHORT_SWAP", tradeAmount,
+            pending.spotFillPrice, pending.swapFillPrice);
+        positionWriter.writeAsync(posLog);
         
         // 输出交易明细
         TradeRecord record = new TradeRecord();
@@ -506,6 +739,20 @@ public class TradingDecisionProcessor
         BigDecimal entrySpread = position.getEntrySwapPrice().subtract(position.getEntrySpotPrice());
         BigDecimal exitSpread = pending.swapFillPrice.subtract(pending.spotFillPrice);
         BigDecimal profit = exitSpread.subtract(entrySpread);
+        BigDecimal profitRate = profit.divide(position.getAmount(), 6, RoundingMode.HALF_UP)
+            .multiply(new BigDecimal("100"));
+        
+        long holdTimeMs = System.currentTimeMillis() - position.getOpenTime();
+        long holdTimeSeconds = holdTimeMs / 1000;
+        
+        // 异步写入持仓日志
+        String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        String posLog = String.format("%s,%s,CLOSE,%s,%s,%s,%s,%s,%s,%s,%s,%d,N/A",
+            timestamp, pending.symbol, position.getDirection(), position.getAmount(),
+            position.getEntrySpotPrice(), position.getEntrySwapPrice(),
+            pending.spotFillPrice, pending.swapFillPrice,
+            profit, profitRate, holdTimeSeconds);
+        positionWriter.writeAsync(posLog);
         
         // 更新持仓状态
         position.setOpen(false);
@@ -520,7 +767,7 @@ public class TradingDecisionProcessor
         record.spotPrice = pending.spotFillPrice;
         record.swapPrice = pending.swapFillPrice;
         record.profit = profit;
-        record.holdTimeMs = System.currentTimeMillis() - position.getOpenTime();
+        record.holdTimeMs = holdTimeMs;
         record.timestamp = System.currentTimeMillis();
         
         out.collect(record);

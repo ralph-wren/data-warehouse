@@ -9,6 +9,7 @@ import redis.clients.jedis.JedisPoolConfig;
 
 import java.io.Serializable;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -414,6 +415,21 @@ public class RedisConnectionManager implements Serializable {
             logger.error("Redis HEXISTS 操作失败: key={}, field={}, error={}", 
                 key, field, e.getMessage());
             return false;
+        }
+    }
+    
+    /**
+     * 获取 Hash 的所有字段和值
+     * 
+     * @param key 键
+     * @return 所有字段和值的 Map，失败返回 null
+     */
+    public Map<String, String> hgetAll(String key) {
+        try (Jedis jedis = getConnection()) {
+            return jedis.hgetAll(key);
+        } catch (Exception e) {
+            logger.error("Redis HGETALL 操作失败: key={}, error={}", key, e.getMessage());
+            return null;
         }
     }
     

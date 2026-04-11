@@ -53,6 +53,9 @@ public class OKXTradingService implements Serializable {
     // Redis 连接管理器,用于缓存交易对信息
     private transient RedisConnectionManager redisManager;
     
+    // 杠杆支持信息缓存（从 Redis 加载到内存）
+    private transient MarginSupportCache marginCache;
+    
     // Redis Hash Key,用于存储交易对信息
     private static final String INSTRUMENT_CACHE_KEY = "okx:instrument:cache";
     
@@ -93,13 +96,24 @@ public class OKXTradingService implements Serializable {
     }
     
     /**
-     * 构造函数
+     * 构造函数（不带杠杆缓存）
      */
     public OKXTradingService(ConfigLoader config) {
+        this(config, null);
+    }
+    
+    /**
+     * 构造函数（带杠杆缓存）
+     * 
+     * @param config 配置加载器
+     * @param marginCache 杠杆支持信息缓存（可选，如果提供则使用内存缓存，否则调用 API）
+     */
+    public OKXTradingService(ConfigLoader config, MarginSupportCache marginCache) {
         this.apiKey = config.getString("okx.api.key", "");
         this.secretKey = config.getString("okx.api.secret", "");
         this.passphrase = config.getString("okx.api.passphrase", "");
         this.isSimulated = config.getBoolean("okx.api.simulated", false);
+        this.marginCache = marginCache;
         
         // 根据是否模拟交易选择 URL
         if (isSimulated) {
@@ -128,6 +142,11 @@ public class OKXTradingService implements Serializable {
         } catch (Exception e) {
             logger.error("✗ Redis 连接管理器初始化失败: {}", e.getMessage(), e);
             this.redisManager = null;
+        }
+        
+        // 如果提供了杠杆缓存，输出日志
+        if (marginCache != null) {
+            logger.info("✓ 杠杆支持信息缓存已注入，将使用内存缓存查询");
         }
         
         initHttpClient();
@@ -292,7 +311,7 @@ public class OKXTradingService implements Serializable {
      * 
      * 注意:
      * - 使用杠杆模式(tdMode: "cross" 或 "isolated")可以借币卖出
-     * - 如果需要借币,会自动查询借币利息并计算到成本中
+     * - 如果提供了 marginCache，会从内存缓存查询杠杆支持信息，否则调用 API
      * - 借币利息按小时计算,需要考虑持仓时间
      * - 查询到的利息率会保存到 lastBorrowInterestRate 字段,可通过 getLastBorrowInterestRate() 获取
      * 
@@ -308,8 +327,25 @@ public class OKXTradingService implements Serializable {
             String instId = symbol + "-USDT";
             logger.info("📉 做空现货（卖出）: {} | 数量: {} {} | 杠杆: {}x", instId, size, symbol, leverage);
             
-            // 先设置杠杆倍数
-            setMarginLeverage(instId, leverage);
+            // 检查是否支持杠杆交易（优先使用内存缓存）
+            boolean supportsMargin = false;
+            if (marginCache != null) {
+                // 从内存缓存查询
+                supportsMargin = marginCache.supportsMargin(instId);
+                logger.debug("从内存缓存查询杠杆支持: {} -> {}", instId, supportsMargin);
+            } else {
+                // 兜底方案：调用 API 查询（性能较差）
+                logger.warn("⚠ 未提供杠杆缓存，将调用 API 查询（性能较差）");
+                supportsMargin = checkMarginSupport(symbol);
+            }
+            
+            // 如果支持杠杆，设置杠杆倍数
+            if (supportsMargin) {
+                setMarginLeverage(instId, leverage);
+                logger.info("✓ {} 支持杠杆交易，已设置杠杆倍数: {}x", instId, leverage);
+            } else {
+                logger.warn("⚠ {} 不支持杠杆交易，将使用现货模式（可能失败）", instId);
+            }
             
             // 检查订单金额是否满足最小要求,如果不满足则调整为最小金额
             // 最小订单金额 = max(OKX最小限额10 USDT, 配置的交易金额)
@@ -342,15 +378,11 @@ public class OKXTradingService implements Serializable {
                     okxMinAmount, configTradeAmount);
             }
             
-            // 查询借币利息（如果需要借币）
-            lastBorrowInterestRate = queryBorrowInterestRate(symbol);
-            if (lastBorrowInterestRate != null && lastBorrowInterestRate.compareTo(BigDecimal.ZERO) > 0) {
-                logger.info("💰 借币利息: {} (小时利率) | 币种: {}", lastBorrowInterestRate, symbol);
-                // 注意: 利息成本需要在计算净收益时考虑
-                // 利息 = 借币数量 * 小时利率 * 持仓小时数
-            } else {
-                logger.warn("⚠ 未查询到 {} 的借币利息,可能不需要借币或查询失败", symbol);
-            }
+            // 注意：借币利息查询已移除，因为：
+            // 1. 利息率变化频繁，缓存意义不大
+            // 2. 实际利息成本很小，对套利决策影响有限
+            // 3. 可以在平仓后通过账单查询实际利息
+            lastBorrowInterestRate = null;
             
             ObjectNode orderRequest = OBJECT_MAPPER.createObjectNode();
             orderRequest.put("instId", instId);
@@ -1044,6 +1076,51 @@ public class OKXTradingService implements Serializable {
     }
     
     /**
+     * 根据 USDT 金额和价格计算现货数量
+     * 
+     * 计算公式:
+     * 币数量 = USDT金额 / 价格
+     * 
+     * 示例:
+     * - BTC 价格 50000 USDT, 交易金额 100 USDT
+     * - 币数量 = 100 / 50000 = 0.002 BTC
+     * 
+     * @param usdtAmount USDT 金额
+     * @param price 当前价格
+     * @return 币的数量
+     */
+    /**
+     * 计算交易数量（现货和合约统一使用币的数量）
+     * 
+     * 计算公式: 币数量 = USDT金额 / 价格（向上取整）
+     * 
+     * 示例:
+     * - BTC 价格 50000 USDT, 交易金额 100 USDT
+     * - 币数量 = 100 / 50000 = 0.002 BTC (向上取整)
+     * 
+     * @param usdtAmount USDT 金额
+     * @param price 当前价格
+     * @return 币数量（现货和合约都使用这个数量）
+     */
+    public BigDecimal calculateSpotSize(BigDecimal usdtAmount, BigDecimal price) {
+        try {
+            // 计算币数量（向上取整，确保订单金额不会因为精度问题低于最小金额）
+            BigDecimal coinAmount = usdtAmount.divide(price, 8, java.math.RoundingMode.UP);
+            
+            logger.info("  └─ 计算交易数量:");
+            logger.info("     - 交易金额: {} USDT", usdtAmount);
+            logger.info("     - 当前价格: {} USDT", price);
+            logger.info("     - 币数量: {} (现货和合约统一使用)", coinAmount);
+            
+            return coinAmount;
+            
+        } catch (Exception e) {
+            logger.error("计算交易数量失败: {}", e.getMessage(), e);
+            return null;
+        }
+    }
+    
+    /**
      * 根据 USDT 金额和价格计算合约张数
      * 
      * 计算公式:
@@ -1064,12 +1141,45 @@ public class OKXTradingService implements Serializable {
      * @return 合约张数,如果无法计算返回 null
      */
     public BigDecimal calculateContractSize(String symbol, BigDecimal usdtAmount, BigDecimal price) {
+        return calculateContractSize(symbol, usdtAmount, price, null);
+    }
+    
+    /**
+     * 根据 USDT 金额和价格计算合约张数（支持从 Redis 缓存读取）
+     * 
+     * @param symbol 币种名称,如 COMP
+     * @param usdtAmount USDT 金额
+     * @param price 当前价格
+     * @param redisManager Redis 连接管理器（可选，如果提供则优先从缓存读取）
+     * @return 合约张数,如果无法计算返回 null
+     */
+    public BigDecimal calculateContractSize(String symbol, BigDecimal usdtAmount, BigDecimal price,
+            com.crypto.dw.redis.RedisConnectionManager redisManager) {
         try {
-            // 获取交易对信息
-            InstrumentInfo info = getInstrumentInfo(symbol);
+            // 优先从 Redis 缓存读取交易对信息
+            InstrumentInfo info = null;
+            if (redisManager != null) {
+                try {
+                    String json = redisManager.hget("okx:instrument:cache", symbol);
+                    if (json != null && !json.isEmpty()) {
+                        ObjectMapper mapper = new ObjectMapper();
+                        info = mapper.readValue(json, InstrumentInfo.class);
+                        logger.debug("从缓存读取交易对信息: {} -> minSz={}, ctVal={}, lotSz={}", 
+                            symbol, info.minSz, info.ctVal, info.lotSz);
+                    }
+                } catch (Exception e) {
+                    logger.warn("从缓存读取交易对信息失败: {}, 将调用 API 查询", e.getMessage());
+                }
+            }
+            
+            // 如果缓存中没有,调用 API 查询（兜底方案）
             if (info == null) {
-                logger.error("✗ 无法获取 {} 的交易对信息", symbol);
-                return null;
+                logger.debug("缓存中没有 {} 的交易对信息,调用 API 查询", symbol);
+                info = getInstrumentInfo(symbol);
+                if (info == null) {
+                    logger.error("✗ 无法获取 {} 的交易对信息", symbol);
+                    return null;
+                }
             }
             
             // 1. 计算需要的币数量
@@ -1183,7 +1293,28 @@ public class OKXTradingService implements Serializable {
         }
     }
     
-    private BigDecimal queryBorrowInterestRate(String ccy) {
+    /**
+     * 查询借币利息率（公开方法，供外部调用）
+     * 
+     * OKX API 文档: https://www.okx.com/docs-v5/en/#trading-account-rest-api-get-interest-rate-and-loan-quota
+     * 
+     * 接口: GET /api/v5/account/interest-rate
+     * 参数: ccy - 币种,如 BTC
+     * 
+     * 返回示例:
+     * {
+     *   "code": "0",
+     *   "msg": "",
+     *   "data": [{
+     *     "ccy": "BTC",
+     *     "interestRate": "0.0000040833333334"  // 小时利率
+     *   }]
+     * }
+     * 
+     * @param ccy 币种,如 BTC
+     * @return 小时利率,如果查询失败返回 null
+     */
+    public BigDecimal queryBorrowInterestRate(String ccy) {
         try {
             // 构建请求路径
             String requestPath = "/api/v5/account/interest-rate?ccy=" + ccy;

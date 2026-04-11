@@ -235,6 +235,15 @@ application:
 
 # 套利交易配置
 arbitrage:
+  # 监控配置
+  monitor:
+    top-symbols-count: 10            # 监控价差最高的币对数量(默认10个)
+  
+  # 缓存配置
+  cache:
+    refresh-interval-seconds: 3600    # 缓存刷新间隔(秒,默认1天)
+  
+  # 交易配置
   trading:
     enabled: true                   # 是否启用自动交易(默认关闭,测试通过后再开启)
     trade-amount-usdt: 10           # 单笔交易金额(USDT),会根据当前价格自动计算币的数量
@@ -248,3 +257,10 @@ arbitrage:
     order-timeout-seconds: 30        # 订单超时时间(秒)
     max-hold-time-minutes: 60        # 最大持仓时间(分钟)
     max-loss-per-trade: 10           # 单笔最大亏损(USDT)
+    log-dir: ./logs/trading          # 交易日志目录
+    
+    # 失败黑名单配置
+    blacklist:
+      enabled: true                  # 是否启用黑名单(默认启用)
+      duration-minutes: 60           # 黑名单持续时间(分钟,默认60分钟)
+      max-failures: 3                # 最大失败次数(超过此次数加入黑名单)

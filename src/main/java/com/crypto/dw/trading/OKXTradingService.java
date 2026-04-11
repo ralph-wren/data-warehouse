@@ -333,33 +333,30 @@ public class OKXTradingService implements Serializable {
                 // 从内存缓存查询
                 supportsMargin = marginCache.supportsMargin(instId);
                 logger.debug("从内存缓存查询杠杆支持: {} -> {}", instId, supportsMargin);
-            } else {
-                // 兜底方案：调用 API 查询（性能较差）
-                logger.warn("⚠ 未提供杠杆缓存，将调用 API 查询（性能较差）");
-                supportsMargin = checkMarginSupport(symbol);
             }
             
-            // 如果支持杠杆，设置杠杆倍数
-            if (supportsMargin) {
-                setMarginLeverage(instId, leverage);
-                logger.info("✓ {} 支持杠杆交易，已设置杠杆倍数: {}x", instId, leverage);
-            } else {
-                logger.warn("⚠ {} 不支持杠杆交易，将使用现货模式（可能失败）", instId);
+            // 如果不支持杠杆，直接返回 null（不下单）
+            if (!supportsMargin) {
+                logger.warn("⚠ {} 不支持杠杆交易，取消下单", instId);
+                return null;
             }
+            
+            // 支持杠杆，设置杠杆倍数
+            setMarginLeverage(instId, leverage);
+            logger.info("✓ {} 支持杠杆交易，已设置杠杆倍数: {}x", instId, leverage);
             
             // 检查订单金额是否满足最小要求,如果不满足则调整为最小金额
             // 最小订单金额 = max(OKX最小限额10 USDT, 配置的交易金额)
             BigDecimal orderValue = size.multiply(price);
-            BigDecimal okxMinAmount = new BigDecimal("10");  // OKX 最小 10 USDT
             
             // 从配置读取交易金额(如果有的话)
             ConfigLoader config = ConfigLoader.getInstance();
             BigDecimal configTradeAmount = new BigDecimal(
-                config.getString("arbitrage.trading.trade-amount-usdt", "10")
+                config.getString("arbitrage.trading.trade-amount-usdt")
             );
             
             // 取两者中的较大值作为最小订单金额
-            BigDecimal minOrderAmount = okxMinAmount.max(configTradeAmount);
+            BigDecimal minOrderAmount = orderValue.max(configTradeAmount);
             
             // 如果订单金额小于最小要求,调整数量以满足最小金额
             if (orderValue.compareTo(minOrderAmount) < 0) {
@@ -374,15 +371,28 @@ public class OKXTradingService implements Serializable {
                 
                 logger.info("  └─ 调整: {} {} × {} USDT = {} USDT", 
                     size, symbol, price, orderValue.setScale(2, RoundingMode.HALF_UP));
-                logger.info("  └─ OKX最小限额: {} USDT | 配置交易金额: {} USDT", 
-                    okxMinAmount, configTradeAmount);
+                logger.info("  └─ OKX最小限额: {} USDT ", configTradeAmount);
             }
             
-            // 注意：借币利息查询已移除，因为：
-            // 1. 利息率变化频繁，缓存意义不大
-            // 2. 实际利息成本很小，对套利决策影响有限
-            // 3. 可以在平仓后通过账单查询实际利息
-            lastBorrowInterestRate = null;
+            // 从 Redis 查询借币利息率
+            if (marginCache != null && marginCache.getRedisManager() != null) {
+                try (redis.clients.jedis.Jedis jedis = marginCache.getRedisManager().getConnection()) {
+                    String interestRateStr = jedis.hget("okx:borrow:interest", symbol);
+                    if (interestRateStr != null) {
+                        lastBorrowInterestRate = new BigDecimal(interestRateStr);
+                        logger.debug("从 Redis 查询借币利息率: {} -> {} (小时利率)", symbol, lastBorrowInterestRate);
+                    } else {
+                        logger.warn("⚠ Redis 中未找到 {} 的借币利息率", symbol);
+                        lastBorrowInterestRate = null;
+                    }
+                } catch (Exception e) {
+                    logger.warn("⚠ 从 Redis 查询借币利息率失败: {}", e.getMessage());
+                    lastBorrowInterestRate = null;
+                }
+            } else {
+                logger.warn("⚠ 未提供 Redis 连接,无法查询借币利息率");
+                lastBorrowInterestRate = null;
+            }
             
             ObjectNode orderRequest = OBJECT_MAPPER.createObjectNode();
             orderRequest.put("instId", instId);

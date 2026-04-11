@@ -246,7 +246,7 @@ arbitrage:
   # 交易配置
   trading:
     enabled: true                   # 是否启用自动交易(默认关闭,测试通过后再开启)
-    trade-amount-usdt: 10           # 单笔交易金额(USDT),会根据当前价格自动计算币的数量
+    trade-amount-usdt: 5.5           # 单笔交易金额(USDT),会根据当前价格自动计算币的数量
                                      # 注意: OKX 现货最小下单金额通常是 5-10 USDT,合约最小交易单位是 1 张(1 个币)
                                      # 建议: 50 USDT 可以满足大部分币种的最小下单要求
                                      # 对于高价币种(如 BTC, ETH),需要更大的金额
@@ -262,5 +262,5 @@ arbitrage:
     # 失败黑名单配置
     blacklist:
       enabled: true                  # 是否启用黑名单(默认启用)
-      duration-minutes: 60           # 黑名单持续时间(分钟,默认60分钟)
-      max-failures: 3                # 最大失败次数(超过此次数加入黑名单)
+      duration-minutes: 1460           # 黑名单持续时间(分钟,默认60分钟)
+      max-failures: 1                # 最大失败次数(超过此次数加入黑名单)

@@ -44,11 +44,10 @@ Flink 消费 Kafka 积压严重,经过分析发现主要瓶颈在 `TradingDecisi
 ### 1. TradingDecisionProcessor 重构
 
 #### 添加依赖
+
 ```java
-import com.crypto.dw.flink.async.AsyncCsvWriter;
-import com.crypto.dw.trading.MarginSupportCache;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
+
+
 ```
 
 #### 添加成员变量

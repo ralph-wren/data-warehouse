@@ -117,6 +117,15 @@ public class MarginSupportCache {
     }
     
     /**
+     * 获取 Redis 连接管理器
+     * 
+     * @return Redis 连接管理器
+     */
+    public RedisConnectionManager getRedisManager() {
+        return redisManager;
+    }
+    
+    /**
      * 关闭 Redis 连接
      */
     public void close() {

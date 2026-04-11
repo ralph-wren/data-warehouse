@@ -49,10 +49,12 @@ public class OKXRestApiSource extends RichSourceFunction<OKXRestApiSource.PriceS
     private final ConfigLoader config;
     private final long intervalMs;  // 获取价格的间隔时间(毫秒)
     private final int topN;  // 取价差最大的前 N 个
+    private final boolean filterMarginOnly;  // 是否只订阅支持现货杠杆的币对
     
     private volatile boolean running = true;
     private transient ObjectMapper objectMapper;
     private transient Proxy proxy;
+    private transient com.crypto.dw.trading.MarginSupportCache marginCache;  // 杠杆支持信息缓存
 
     /**
      * 构造函数
@@ -65,6 +67,7 @@ public class OKXRestApiSource extends RichSourceFunction<OKXRestApiSource.PriceS
         this.config = config;
         this.intervalMs = intervalMs;
         this.topN = topN;
+        this.filterMarginOnly = config.getBoolean("ticker.filter.margin-only", true);  // 默认过滤
     }
 
     @Override
@@ -82,6 +85,14 @@ public class OKXRestApiSource extends RichSourceFunction<OKXRestApiSource.PriceS
         } else {
             proxy = Proxy.NO_PROXY;
             logger.info("代理未启用");
+        }
+        
+        // 初始化杠杆支持信息缓存（如果启用过滤）
+        if (filterMarginOnly) {
+            marginCache = new com.crypto.dw.trading.MarginSupportCache(config);
+            logger.info("杠杆过滤已启用，将只订阅支持现货杠杆的币对");
+        } else {
+            logger.info("杠杆过滤已禁用，将订阅所有币对");
         }
     }
 
@@ -226,6 +237,7 @@ public class OKXRestApiSource extends RichSourceFunction<OKXRestApiSource.PriceS
             Map<String, BigDecimal> swapPrices) {
         
         List<PriceSpreadInfo> spreadList = new ArrayList<>();
+        int filteredCount = 0;  // 被过滤的币对数量
         
         // 遍历所有现货价格
         for (Map.Entry<String, BigDecimal> entry : spotPrices.entrySet()) {
@@ -235,6 +247,17 @@ public class OKXRestApiSource extends RichSourceFunction<OKXRestApiSource.PriceS
             // 检查是否有对应的合约价格
             if (!swapPrices.containsKey(symbol)) {
                 continue;
+            }
+            
+            // 如果启用杠杆过滤，检查是否支持现货杠杆
+            if (filterMarginOnly && marginCache != null) {
+                String instId = symbol + "-USDT";
+                boolean supportsMargin = marginCache.supportsMargin(instId);
+                if (!supportsMargin) {
+                    filteredCount++;
+                    logger.debug("过滤不支持杠杆的币对: {}", instId);
+                    continue;
+                }
             }
             
             BigDecimal swapPrice = swapPrices.get(symbol);
@@ -255,6 +278,10 @@ public class OKXRestApiSource extends RichSourceFunction<OKXRestApiSource.PriceS
             info.timestamp = System.currentTimeMillis();
             
             spreadList.add(info);
+        }
+        
+        if (filterMarginOnly && filteredCount > 0) {
+            logger.info("杠杆过滤: 过滤了 {} 个不支持杠杆的币对，剩余 {} 个币对", filteredCount, spreadList.size());
         }
         
         // 按价差率绝对值降序排序

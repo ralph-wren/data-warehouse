@@ -98,7 +98,7 @@ public class FlinkADSArbitrageJob {
         DataStream<SpotPrice> spotStream = env.fromSource(
             spotKafkaSource,
             WatermarkStrategy
-                .<String>forBoundedOutOfOrderness(Duration.ofSeconds(5))
+                .<String>forBoundedOutOfOrderness(Duration.ofSeconds(2))
                 .withTimestampAssigner(new SerializableTimestampAssigner<String>() {
                     @Override
                     public long extractTimestamp(String element, long recordTimestamp) {
@@ -135,7 +135,7 @@ public class FlinkADSArbitrageJob {
         DataStream<FuturesPrice> futuresStream = env.fromSource(
             swapKafkaSource,
             WatermarkStrategy
-                .<String>forBoundedOutOfOrderness(Duration.ofSeconds(5))
+                .<String>forBoundedOutOfOrderness(Duration.ofSeconds(2))
                 .withTimestampAssigner(new SerializableTimestampAssigner<String>() {
                     @Override
                     public long extractTimestamp(String element, long recordTimestamp) {
@@ -173,11 +173,11 @@ public class FlinkADSArbitrageJob {
         DataStream<ArbitrageOpportunity> arbitrageStream = spotStream
             .keyBy(spot -> spot.symbol)
             .intervalJoin(futuresStream.keyBy(futures -> futures.symbol))
-            .between(Time.seconds(-10), Time.seconds(10))
+            .between(Time.seconds(-2), Time.seconds(2))
             .process(new ArbitrageCalculator())
             .name("Calculate Arbitrage");
         
-        logger.info("✓ Interval Join 配置成功（时间窗口: ±10 秒）");
+        logger.info("✓ Interval Join 配置成功（时间窗口: ±2 秒）");
         
         // ========== 步骤 4: 创建订单流 ==========
         logger.info("创建订单 WebSocket 流...");

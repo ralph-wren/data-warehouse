@@ -297,7 +297,8 @@ public class FlinkTickerCollectorJob {
         // 尝试通过 REST API 计算价差,获取价差最大的前10个币对
         try {
             logger.info("未指定交易对,开始计算价差...");
-            List<String> topSpreadSymbols = calculateTopSpreadSymbols(config, 10);
+            Integer cryptoNum = config.getInt("ticker.subscribe.number");
+            List<String> topSpreadSymbols = calculateTopSpreadSymbols(config, cryptoNum);
             if (topSpreadSymbols != null && !topSpreadSymbols.isEmpty()) {
                 logger.info("价差计算完成,获取到 {} 个币对: {}", topSpreadSymbols.size(), topSpreadSymbols);
                 return topSpreadSymbols;
@@ -306,33 +307,9 @@ public class FlinkTickerCollectorJob {
             logger.warn("价差计算失败: {}, 将使用配置文件或默认交易对", e.getMessage());
         }
 
-        // 尝试从配置文件读取（支持逗号分隔的字符串）
-        String symbolsSpotConfig = config.getString("okx.symbols.spot", "");
-        String symbolsSwapConfig = config.getString("okx.symbols.swap", "");
-        String symbolsConfig = symbolsSpotConfig + "," + symbolsSwapConfig;
-
-        logger.info("Reading okx.symbols from config: '{}'", symbolsConfig);
-
-        if (!symbolsConfig.isEmpty()) {
-            // 支持逗号分隔的多个交易对
-            String[] symbolArray = symbolsConfig.split(",");
-            List<String> symbols = new ArrayList<>();
-            for (String symbol : symbolArray) {
-                String trimmed = symbol.trim();
-                if (!trimmed.isEmpty()) {
-                    symbols.add(trimmed);
-                }
-            }
-            if (!symbols.isEmpty()) {
-                logger.info("Using symbols from config file: {}", symbols);
-                return symbols;
-            }
-        }
-
         // 默认订阅 4 个主流交易对（对应 4 个 Kafka 分区）
         // 这样数据会均匀分布到不同分区
-        List<String> defaultSymbols = Arrays.asList("BTC-USDT", "ETH-USDT", "SOL-USDT", "BNB-USDT");
-        logger.info("Config not found or empty, using default symbols: {}", defaultSymbols);
+        List<String> defaultSymbols = Arrays.asList();
         return defaultSymbols;
     }
 
@@ -398,7 +375,8 @@ public class FlinkTickerCollectorJob {
         
         try {
             // 1. 计算价差最大的币对
-            List<String> topSymbols = calculateTopSpreadSymbols(config, topN);
+            Integer cryptoNum = config.getInt("ticker.subscribe.number");
+            List<String> topSymbols = calculateTopSpreadSymbols(config, cryptoNum);
             if (topSymbols == null || topSymbols.isEmpty()) {
                 logger.warn("未获取到价差数据,跳过缓存刷新");
                 return;

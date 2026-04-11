@@ -62,7 +62,6 @@ public class ConfigLoader implements Serializable {
         String[] requiredKeys = {
             // Kafka 配置
             "kafka.bootstrap-servers",
-            "kafka.topic.crypto-ticker-spot",
             
             // Doris 配置
             "doris.fe.http-url",

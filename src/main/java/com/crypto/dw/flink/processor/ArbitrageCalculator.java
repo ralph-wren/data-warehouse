@@ -5,6 +5,8 @@ import com.crypto.dw.flink.model.FuturesPrice;
 import com.crypto.dw.flink.model.SpotPrice;
 import org.apache.flink.streaming.api.functions.co.ProcessJoinFunction;
 import org.apache.flink.util.Collector;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -26,8 +28,13 @@ import java.math.RoundingMode;
 public class ArbitrageCalculator 
         extends ProcessJoinFunction<SpotPrice, FuturesPrice, ArbitrageOpportunity> {
     
+    private static final Logger logger = LoggerFactory.getLogger(ArbitrageCalculator.class);
+    
     // 套利阈值：价差超过 0.5% 才认为有套利机会
     private static final BigDecimal ARBITRAGE_THRESHOLD = new BigDecimal("0.005");
+    
+    // 时间差阈值：2 秒（毫秒）
+    private static final long TIME_DIFF_THRESHOLD_MS = 4000;
     
     @Override
     public void processElement(
@@ -35,6 +42,32 @@ public class ArbitrageCalculator
             FuturesPrice futures,
             Context ctx,
             Collector<ArbitrageOpportunity> out) {
+        
+        // ========== 时间差检测 ==========
+        long currentTime = System.currentTimeMillis();
+        long spotTime = spot.timestamp;
+        long futuresTime = futures.timestamp;
+        
+        // 1. 检测现货和合约数据的时间差
+        long spotFuturesTimeDiff = Math.abs(spotTime - futuresTime);
+        if (spotFuturesTimeDiff > TIME_DIFF_THRESHOLD_MS) {
+            logger.warn("⚠️ 现货和合约时间差超过 2 秒: symbol={}, 现货时间={}, 合约时间={}, 时间差={}ms",
+                    spot.symbol, spotTime, futuresTime, spotFuturesTimeDiff);
+        }
+        
+        // 2. 检测系统时间与现货数据的时间差
+        long currentSpotTimeDiff = Math.abs(currentTime - spotTime);
+        if (currentSpotTimeDiff > TIME_DIFF_THRESHOLD_MS) {
+            logger.warn("⚠️ 系统时间与现货数据时间差超过 2 秒: symbol={}, 系统时间={}, 现货时间={}, 时间差={}ms",
+                    spot.symbol, currentTime, spotTime, currentSpotTimeDiff);
+        }
+        
+        // 3. 检测系统时间与合约数据的时间差
+        long currentFuturesTimeDiff = Math.abs(currentTime - futuresTime);
+        if (currentFuturesTimeDiff > TIME_DIFF_THRESHOLD_MS) {
+            logger.debug("⚠️ 系统时间与合约数据时间差超过 2 秒: symbol={}, 系统时间={}, 合约时间={}, 时间差={}ms",
+                    spot.symbol, currentTime, futuresTime, currentFuturesTimeDiff);
+        }
         
         // 计算价差
         BigDecimal spread = futures.price.subtract(spot.price);

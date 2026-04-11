@@ -321,11 +321,12 @@ public class OKXTradingService implements Serializable {
      * @param leverage 杠杆倍数
      * @return 订单ID
      */
-    public String sellSpot(String symbol, BigDecimal size, BigDecimal price, int leverage) {
+    public String sellSpot(String symbol, BigDecimal amountUsdt, BigDecimal price, int leverage) {
         try {
             // 拼接完整交易对: BTC → BTC-USDT
             String instId = symbol + "-USDT";
-            logger.info("📉 做空现货（卖出）: {} | 数量: {} {} | 杠杆: {}x", instId, size, symbol, leverage);
+            logger.info("📉 做空现货（卖出）: {} | 金额: {} USDT | 价格: {} | 杠杆: {}x", 
+                instId, amountUsdt, price, leverage);
             
             // 检查是否支持杠杆交易（优先使用内存缓存）
             boolean supportsMargin = false;
@@ -345,34 +346,9 @@ public class OKXTradingService implements Serializable {
             setMarginLeverage(instId, leverage);
             logger.info("✓ {} 支持杠杆交易，已设置杠杆倍数: {}x", instId, leverage);
             
-            // 检查订单金额是否满足最小要求,如果不满足则调整为最小金额
-            // 最小订单金额 = max(OKX最小限额10 USDT, 配置的交易金额)
-            BigDecimal orderValue = size.multiply(price);
-            
-            // 从配置读取交易金额(如果有的话)
-            ConfigLoader config = ConfigLoader.getInstance();
-            BigDecimal configTradeAmount = new BigDecimal(
-                config.getString("arbitrage.trading.trade-amount-usdt")
-            );
-            
-            // 取两者中的较大值作为最小订单金额
-            BigDecimal minOrderAmount = orderValue.max(configTradeAmount);
-            
-            // 如果订单金额小于最小要求,调整数量以满足最小金额
-            if (orderValue.compareTo(minOrderAmount) < 0) {
-                logger.warn("⚠ 订单金额 {} USDT < 最小要求 {} USDT,自动调整数量", 
-                    orderValue.setScale(2, RoundingMode.HALF_UP), minOrderAmount);
-                logger.info("  └─ 原始: {} {} × {} USDT = {} USDT", 
-                    size, symbol, price, orderValue.setScale(2, RoundingMode.HALF_UP));
-                
-                // 重新计算数量: 数量 = 最小金额 / 价格
-                size = minOrderAmount.divide(price, 8, RoundingMode.UP);
-                orderValue = size.multiply(price);
-                
-                logger.info("  └─ 调整: {} {} × {} USDT = {} USDT", 
-                    size, symbol, price, orderValue.setScale(2, RoundingMode.HALF_UP));
-                logger.info("  └─ OKX最小限额: {} USDT ", configTradeAmount);
-            }
+            // 根据 USDT 金额和价格计算币的数量: 数量 = USDT金额 / 价格（向上取整）
+            BigDecimal size = amountUsdt.divide(price, 8, RoundingMode.UP);
+            logger.info("💰 计算数量: {} USDT ÷ {} = {} {}", amountUsdt, price, size, symbol);
             
             // 从 Redis 查询借币利息率
             if (marginCache != null && marginCache.getRedisManager() != null) {
@@ -440,7 +416,7 @@ public class OKXTradingService implements Serializable {
      * 注意: 
      * - 合约交易需要设置 posSide 参数
      * - 合约不支持 tgtCcy 参数,sz 表示张数
-     * - USDT 合约: 1 张 = 1 个币(如 1 BTC, 1 ETH)
+     * - 会根据现货币数量自动计算符合 lot size 要求的张数
      * 
      * OKX API 文档: https://www.okx.com/docs-v5/en/#order-book-trading-trade-post-place-order
      * 
@@ -469,15 +445,41 @@ public class OKXTradingService implements Serializable {
      * }
      * 
      * @param symbol 币种名称,如 BTC (方法内部会拼接为 BTC-USDT-SWAP)
-     * @param size 交易数量（币的数量,如 0.001 BTC,会自动转换为张数）
+     * @param spotCoinAmount 现货币数量（与现货保持一致）
+     * @param price 当前价格（用于日志输出）
      * @param leverage 杠杆倍数
      * @return 订单ID
      */
-    public String longSwap(String symbol, BigDecimal size, int leverage) {
+    public String longSwap(String symbol, BigDecimal spotCoinAmount, BigDecimal price, int leverage) {
         try {
             // 拼接完整合约交易对: BTC → BTC-USDT-SWAP
             String instId = symbol + "-USDT-SWAP";
-            logger.info("📈 做多合约: {} | 数量: {} {} | 杠杆: {}x", instId, size, symbol, leverage);
+            
+            // 获取交易对信息
+            InstrumentInfo info = getInstrumentInfo(symbol);
+            if (info == null) {
+                logger.error("❌ 无法获取 {} 的交易对信息", symbol);
+                return null;
+            }
+            
+            // 将币数量转换为张数
+            // 张数 = 币数量 / ctVal
+            BigDecimal rawSize = spotCoinAmount.divide(info.ctVal, 8, java.math.RoundingMode.DOWN);
+            
+            // 按 lotSz 向下取整，确保符合 lot size 要求
+            BigDecimal lots = rawSize.divide(info.lotSz, 0, java.math.RoundingMode.DOWN);
+            BigDecimal contractSize = lots.multiply(info.lotSz);
+            
+            // 计算实际币数量（用于日志对比）
+            BigDecimal actualCoinAmount = contractSize.multiply(info.ctVal);
+            
+            if (contractSize.compareTo(BigDecimal.ZERO) <= 0) {
+                logger.error("❌ 计算的合约张数为0: symbol={}, spotCoinAmount={}", symbol, spotCoinAmount);
+                return null;
+            }
+            
+            logger.info("📈 做多合约: {} | 现货币数量: {} {} | 合约张数: {} | 实际币数量: {} {} | 杠杆: {}x", 
+                instId, spotCoinAmount, symbol, contractSize, actualCoinAmount, symbol, leverage);
             
             // 先设置杠杆
             setLeverage(instId, leverage);
@@ -488,7 +490,7 @@ public class OKXTradingService implements Serializable {
             orderRequest.put("side", "buy");  // 买入开多
             orderRequest.put("posSide", "long");  // 持仓方向：多头（必填）
             orderRequest.put("ordType", "market");  // 市价单
-            orderRequest.put("sz", size.toString());  // 张数（USDT合约: 1张=1币）
+            orderRequest.put("sz", contractSize.toPlainString());  // 张数（符合 lot size 要求）
             // 注意: 合约不支持 tgtCcy 参数
             
             return placeOrder(orderRequest);
@@ -505,7 +507,7 @@ public class OKXTradingService implements Serializable {
      * 注意: 
      * - 合约交易需要设置 posSide 参数
      * - 合约不支持 tgtCcy 参数,sz 表示张数
-     * - USDT 合约: 1 张 = 1 个币(如 1 BTC, 1 ETH)
+     * - 会根据现货币数量自动计算符合 lot size 要求的张数
      * 
      * OKX API 文档: https://www.okx.com/docs-v5/en/#order-book-trading-trade-post-place-order
      * 
@@ -534,15 +536,41 @@ public class OKXTradingService implements Serializable {
      * }
      * 
      * @param symbol 币种名称,如 BTC (方法内部会拼接为 BTC-USDT-SWAP)
-     * @param size 交易数量（币的数量,如 0.001 BTC）
+     * @param spotCoinAmount 现货币数量（与现货保持一致）
+     * @param price 当前价格（用于日志输出）
      * @param leverage 杠杆倍数
      * @return 订单ID
      */
-    public String shortSwap(String symbol, BigDecimal size, int leverage) {
+    public String shortSwap(String symbol, BigDecimal spotCoinAmount, BigDecimal price, int leverage) {
         try {
             // 拼接完整合约交易对: BTC → BTC-USDT-SWAP
             String instId = symbol + "-USDT-SWAP";
-            logger.info("📉 做空合约: {} | 数量: {} {} | 杠杆: {}x", instId, size, symbol, leverage);
+            
+            // 获取交易对信息
+            InstrumentInfo info = getInstrumentInfo(symbol);
+            if (info == null) {
+                logger.error("❌ 无法获取 {} 的交易对信息", symbol);
+                return null;
+            }
+            
+            // 将币数量转换为张数
+            // 张数 = 币数量 / ctVal
+            BigDecimal rawSize = spotCoinAmount.divide(info.ctVal, 8, java.math.RoundingMode.DOWN);
+            
+            // 按 lotSz 向下取整，确保符合 lot size 要求
+            BigDecimal lots = rawSize.divide(info.lotSz, 0, java.math.RoundingMode.DOWN);
+            BigDecimal contractSize = lots.multiply(info.lotSz);
+            
+            // 计算实际币数量（用于日志对比）
+            BigDecimal actualCoinAmount = contractSize.multiply(info.ctVal);
+            
+            if (contractSize.compareTo(BigDecimal.ZERO) <= 0) {
+                logger.error("❌ 计算的合约张数为0: symbol={}, spotCoinAmount={}", symbol, spotCoinAmount);
+                return null;
+            }
+            
+            logger.info("📉 做空合约: {} | 现货币数量: {} {} | 合约张数: {} | 实际币数量: {} {} | 杠杆: {}x", 
+                instId, spotCoinAmount, symbol, contractSize, actualCoinAmount, symbol, leverage);
             
             // 先设置杠杆
             setLeverage(instId, leverage);
@@ -553,7 +581,7 @@ public class OKXTradingService implements Serializable {
             orderRequest.put("side", "sell");  // 卖出开空
             orderRequest.put("posSide", "short");  // 持仓方向：空头（必填）
             orderRequest.put("ordType", "market");  // 市价单
-            orderRequest.put("sz", size.toString());  // 张数（USDT合约: 1张=1币）
+            orderRequest.put("sz", contractSize.toPlainString());  // 张数（符合 lot size 要求）
             // 注意: 合约不支持 tgtCcy 参数
             
             return placeOrder(orderRequest);
@@ -836,19 +864,19 @@ public class OKXTradingService implements Serializable {
             
             // 打印完整的请求信息
             logger.info("========== OKX API 请求 ==========");
-            logger.info("URL: {}", baseUrl + requestPath);
-            logger.info("Method: {}", method);
-            logger.info("Headers:");
-            logger.info("  OK-ACCESS-KEY: {}", apiKey.substring(0, Math.min(8, apiKey.length())) + "***");
-            logger.info("  OK-ACCESS-TIMESTAMP: {}", timestamp);
-            logger.info("  Content-Type: application/json");
-            logger.info("Request Body:");
+            logger.debug("URL: {}", baseUrl + requestPath);
+            logger.debug("Method: {}", method);
+            logger.debug("Headers:");
+            logger.debug("  OK-ACCESS-KEY: {}", apiKey.substring(0, Math.min(8, apiKey.length())) + "***");
+            logger.debug("  OK-ACCESS-TIMESTAMP: {}", timestamp);
+            logger.debug("  Content-Type: application/json");
+            logger.debug("Request Body:");
             logger.info("{}", bodyStr);
             
             // 打印完整的响应信息
             logger.info("========== OKX API 响应 ==========");
-            logger.info("HTTP Status: {}", response.code());
-            logger.info("Response Body:");
+            logger.debug("HTTP Status: {}", response.code());
+            logger.debug("Response Body:");
             logger.info("{}", responseBody);
             logger.info("===================================");
             

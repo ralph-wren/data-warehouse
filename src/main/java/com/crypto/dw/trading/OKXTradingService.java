@@ -1543,10 +1543,10 @@ public class OKXTradingService implements Serializable {
      * @param instType 产品类型: SPOT(现货), SWAP(合约)
      * @return 订单详细信息的JSON对象,如果失败返回null
      */
-    public com.fasterxml.jackson.databind.JsonNode queryOrderDetail(String orderId, String instType) {
+    public com.fasterxml.jackson.databind.JsonNode queryOrderDetail(String orderId, String instId, String instType) {
         try {
-            // API路径: GET /api/v5/trade/order?ordId={orderId}&instType={instType}
-            String requestPath = "/api/v5/trade/order?ordId=" + orderId + "&instType=" + instType;
+            // API路径: GET /api/v5/trade/order?ordId={orderId}&instId={instId}&instType={instType}
+            String requestPath = "/api/v5/trade/order?ordId=" + orderId + "&instId=" + instId + "&instType=" + instType;
             String timestamp = getIsoTimestamp();
             String method = "GET";
             
@@ -1577,22 +1577,24 @@ public class OKXTradingService implements Serializable {
                 com.fasterxml.jackson.databind.JsonNode dataArray = root.path("data");
                 if (dataArray.isArray() && dataArray.size() > 0) {
                     com.fasterxml.jackson.databind.JsonNode orderDetail = dataArray.get(0);
-                    logger.info("✅ 查询订单详情成功: orderId={}, instType={}", orderId, instType);
+                    logger.info("✅ 查询订单详情成功: orderId={}, instId={}, instType={}", orderId, instId, instType);
                     return orderDetail;
                 } else {
-                    logger.warn("⚠️ 订单详情为空: orderId={}, instType={}", orderId, instType);
+                    logger.warn("⚠️ 订单详情为空: orderId={}, instId={}, instType={}", orderId, instId, instType);
                     return null;
                 }
             } else {
                 String msg = root.path("msg").asText();
-                logger.error("❌ 查询订单详情失败: orderId={}, instType={}, code={}, msg={}", 
-                    orderId, instType, code, msg);
+                logger.error("❌ 查询订单详情失败: orderId={}, instId={}, instType={}, code={}, msg={}", 
+                    orderId, instId, instType, code, msg);
+                this.lastErrorMessage = msg;
                 return null;
             }
             
         } catch (Exception e) {
-            logger.error("❌ 查询订单详情异常: orderId={}, instType={}, error={}", 
-                orderId, instType, e.getMessage(), e);
+            logger.error("❌ 查询订单详情异常: orderId={}, instId={}, instType={}, error={}", 
+                orderId, instId, instType, e.getMessage(), e);
+            this.lastErrorMessage = e.getMessage();
             return null;
         }
     }

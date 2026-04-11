@@ -3,9 +3,9 @@ package com.crypto.dw.processor;
 import com.crypto.dw.config.ConfigLoader;
 import com.crypto.dw.flink.async.SyncCsvWriter;
 import com.crypto.dw.flink.model.ArbitrageOpportunity;
-import com.crypto.dw.flink.model.OrderUpdate;
-import com.crypto.dw.flink.model.PendingOrder;
+
 import com.crypto.dw.model.TradeRecord;
+import com.crypto.dw.redis.RedisConnectionManager;
 import com.crypto.dw.trading.MarginSupportCache;
 import com.crypto.dw.trading.OKXTradingService;
 import com.crypto.dw.trading.OpportunityTracker;
@@ -15,7 +15,7 @@ import org.apache.flink.api.common.state.MapStateDescriptor;
 import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
 import org.apache.flink.configuration.Configuration;
-import org.apache.flink.streaming.api.functions.co.KeyedCoProcessFunction;
+import org.apache.flink.streaming.api.functions.KeyedProcessFunction;
 import org.apache.flink.util.Collector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,16 +28,16 @@ import java.time.format.DateTimeFormatter;
 
 
 /**
- * 交易决策处理器
+ * 交易决策处理器 - 重构版
  * 
  * 功能:
  * 1. 接收套利机会,判断是否开仓/平仓
- * 2. 接收订单更新,确认开仓/平仓
+ * 2. 主动查询订单明细（不依赖 WebSocket）
  * 3. 维护持仓状态
  * 4. 输出交易明细
  */
 public class TradingDecisionProcessor 
-        extends KeyedCoProcessFunction<String, ArbitrageOpportunity, OrderUpdate, TradeRecord> {
+        extends KeyedProcessFunction<String, ArbitrageOpportunity, TradeRecord> {
     
     private static final Logger logger = LoggerFactory.getLogger(TradingDecisionProcessor.class);
     
@@ -49,6 +49,7 @@ public class TradingDecisionProcessor
     private final BigDecimal closeThreshold;
     private final long maxHoldTimeMs;
     private final BigDecimal maxLossPerTrade;
+    private final int maxPositions;  // 最大持仓数量
     
     // 黑名单配置
     private final boolean blacklistEnabled;
@@ -57,14 +58,17 @@ public class TradingDecisionProcessor
     
     private transient OKXTradingService tradingService;
     private transient MarginSupportCache marginCache;  // 杠杆支持信息缓存
+    private transient RedisConnectionManager redisManager;  // Redis 连接管理器（用于全局持仓计数）
     private transient SyncCsvWriter orderDetailWriter;  // 同步订单明细日志（使用线程池）
     private transient SyncCsvWriter positionWriter;     // 同步持仓日志（使用线程池）
     private transient SyncCsvWriter summaryWriter;      // 同步交易汇总日志（使用线程池）
     private transient SyncCsvWriter orderDetailFullWriter;  // 订单详细信息日志（包含成交时间、手续费等）
     private transient java.util.concurrent.ExecutorService orderQueryExecutor;  // 订单查询线程池
     
+    // Redis Key 常量
+    private static final String REDIS_KEY_POSITION_COUNT = "okx:arbitrage:position:count";  // 全局持仓计数器
+    
     private transient ValueState<PositionState> positionState;
-    private transient MapState<String, PendingOrder> pendingOrders;
     private transient ValueState<OpportunityTracker> opportunityTracker;
     private transient ValueState<Long> lastStatusLogTime;  // 最后一次状态日志输出时间
     private transient ValueState<String> currentSymbol;    // 当前币对名称
@@ -84,6 +88,7 @@ public class TradingDecisionProcessor
         this.leverage = config.getInt("arbitrage.trading.leverage", 1);  // 读取杠杆倍数配置,默认1倍
         this.openThreshold = new BigDecimal(config.getString("arbitrage.trading.open-threshold", "0.005"));
         this.closeThreshold = new BigDecimal(config.getString("arbitrage.trading.close-threshold", "0.002"));
+        this.maxPositions = config.getInt("arbitrage.trading.max-positions", 1);  // 读取最大持仓数量配置,默认1个
         
         int maxHoldMinutes = config.getInt("arbitrage.trading.max-hold-time-minutes", 60);
         this.maxHoldTimeMs = maxHoldMinutes * 60 * 1000L;
@@ -101,6 +106,22 @@ public class TradingDecisionProcessor
     public void open(Configuration parameters) {
         // 初始化杠杆支持信息缓存（从 Redis 加载到内存）
         marginCache = new MarginSupportCache(config);
+        
+        // 初始化 Redis 连接管理器（用于全局持仓计数）
+        redisManager = new RedisConnectionManager(config);
+        logger.info("✓ Redis 连接管理器初始化成功");
+        
+        // ⭐ 清空全局持仓计数器，防止历史遗留数据影响持仓限制
+        try {
+            long deleted = redisManager.del(REDIS_KEY_POSITION_COUNT);
+            if (deleted > 0) {
+                logger.info("🧹 已清空全局持仓计数器: {} (删除了 {} 个key)", REDIS_KEY_POSITION_COUNT, deleted);
+            } else {
+                logger.info("ℹ️ 全局持仓计数器不存在或已为空: {}", REDIS_KEY_POSITION_COUNT);
+            }
+        } catch (Exception e) {
+            logger.error("❌ 清空全局持仓计数器失败: {}", e.getMessage(), e);
+        }
         
         // 初始化交易服务（传入杠杆缓存）
         tradingService = new OKXTradingService(config, marginCache);
@@ -154,14 +175,6 @@ public class TradingDecisionProcessor
         );
         positionState = getRuntimeContext().getState(positionDescriptor);
         
-        // 初始化待确认订单
-        MapStateDescriptor<String, PendingOrder> pendingDescriptor = new MapStateDescriptor<>(
-            "pending-orders",
-            String.class,
-            PendingOrder.class
-        );
-        pendingOrders = getRuntimeContext().getMapState(pendingDescriptor);
-        
         // 初始化套利机会跟踪器
         ValueStateDescriptor<OpportunityTracker> trackerDescriptor = new ValueStateDescriptor<>(
             "opportunity-tracker",
@@ -208,6 +221,7 @@ public class TradingDecisionProcessor
         logger.info("TradingDecisionProcessor 初始化完成");
         logger.info("  交易开关: {}", tradingEnabled ? "开启" : "关闭");
         logger.info("  交易金额: {} USDT", tradeAmount);
+        logger.info("  最大持仓数量: {} 个", maxPositions);
         logger.info("  开仓阈值: {}%", openThreshold.multiply(new BigDecimal("100")));
         logger.info("  平仓阈值: {}%", closeThreshold.multiply(new BigDecimal("100")));
         logger.info("  杠杆支持信息: {} 个币种已加载", marginCache.size());
@@ -252,11 +266,16 @@ public class TradingDecisionProcessor
             marginCache.close();
         }
         
+        // 关闭 Redis 连接管理器
+        if (redisManager != null) {
+            redisManager.close();
+        }
+        
         logger.info("TradingDecisionProcessor 已关闭");
     }
     
     @Override
-    public void processElement1(
+    public void processElement(
             ArbitrageOpportunity opportunity,
             Context ctx,
             Collector<TradeRecord> out) throws Exception {
@@ -352,6 +371,17 @@ public class TradingDecisionProcessor
         }
         // 决策 2: 持仓状态下的逻辑
         else {
+            // 检查是否是当前持仓的币种
+            if (!opportunity.symbol.equals(position.getSymbol())) {
+                // 不是当前持仓的币种,跳过处理
+                // 注意: 由于使用 keyBy(symbol),每个币种的数据会路由到不同的 key
+                // 但由于状态是按 key 存储的,这里不应该出现不同币种的情况
+                // 如果出现,说明状态管理有问题
+                logger.warn("⚠️ 收到非持仓币种的数据: 当前持仓={}, 收到数据={}", 
+                    position.getSymbol(), opportunity.symbol);
+                return;
+            }
+            
             // 清除跟踪器(已经持仓,不需要再跟踪)
             if (tracker != null) {
                 opportunityTracker.clear();
@@ -367,20 +397,6 @@ public class TradingDecisionProcessor
         }
     }
     
-    @Override
-    public void processElement2(
-            OrderUpdate order,
-            Context ctx,
-            Collector<TradeRecord> out) throws Exception {
-        
-        // 处理订单更新
-        if ("filled".equals(order.state)) {
-            handleOrderFilled(order, out);
-        } else if ("canceled".equals(order.state) || "failed".equals(order.state)) {
-            // 处理订单取消或失败
-            handleOrderFailed(order, out);
-        }
-    }
     
     @Override
     public void onTimer(
@@ -587,9 +603,36 @@ public class TradingDecisionProcessor
         
         logger.info("🎯 开仓: {} | 价差率: {}%", opp.symbol, opp.spreadRate);
         
+        // ⭐ 关键修复：在开仓前检查全局持仓数量
+        try {
+            long currentPositionCount = redisManager.getCounter(REDIS_KEY_POSITION_COUNT);
+            logger.info("📊 当前全局持仓数量: {} / {}", currentPositionCount, maxPositions);
+            
+            if (currentPositionCount >= maxPositions) {
+                logger.warn("⚠️ 全局持仓数量已达上限 ({}/{}),拒绝开仓: {}", 
+                    currentPositionCount, maxPositions, opp.symbol);
+                
+                // 写入拒绝日志
+                String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+                String rejectLog = String.format("%s,%s,OPEN,REJECTED,N/A,N/A,N/A,N/A,REJECTED,全局持仓数量已达上限(%d/%d)",
+                    timestamp, opp.symbol, currentPositionCount, maxPositions);
+//                orderDetailWriter.write(rejectLog);
+                return;
+            }
+            
+            // 先增加全局持仓计数（乐观锁）
+            long newCount = redisManager.incr(REDIS_KEY_POSITION_COUNT);
+            logger.info("✅ 全局持仓计数已增加: {} -> {}", currentPositionCount, newCount);
+            
+        } catch (Exception e) {
+            logger.error("❌ 检查全局持仓数量失败: {}", e.getMessage(), e);
+            // Redis 操作失败不影响主流程,继续执行
+        }
+        
         String spotOrderId = null;
         String swapOrderId = null;
         String direction = null;
+        boolean positionCountIncremented = true;  // 标记是否已增加计数（用于失败时回滚）
         
         try {
             // 计算符合合约要求的币数量
@@ -625,6 +668,14 @@ public class TradingDecisionProcessor
                     logger.error("❌ 现货下单失败,取消合约下单");
                     recordFailure(opp.symbol, "现货下单失败");
                     
+                    // ⭐ 回滚全局持仓计数
+                    try {
+                        long newCount = redisManager.decr(REDIS_KEY_POSITION_COUNT);
+                        logger.info("🔄 现货下单失败,已回滚全局持仓计数: {}", newCount);
+                    } catch (Exception e) {
+                        logger.error("❌ 回滚全局持仓计数失败: {}", e.getMessage());
+                    }
+                    
                     // 写入失败日志
                     String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
                     String errorLog = String.format("%s,%s,OPEN,%s,SPOT,N/A,N/A,N/A,FAILED,现货下单失败",
@@ -647,6 +698,14 @@ public class TradingDecisionProcessor
                 // 检查现货单是否成功
                 if (spotOrderId == null) {
                     logger.error("❌ 现货下单失败,取消合约下单");
+                    
+                    // ⭐ 回滚全局持仓计数
+                    try {
+                        long newCount = redisManager.decr(REDIS_KEY_POSITION_COUNT);
+                        logger.info("🔄 现货下单失败,已回滚全局持仓计数: {}", newCount);
+                    } catch (Exception e) {
+                        logger.error("❌ 回滚全局持仓计数失败: {}", e.getMessage());
+                    }
                     
                     // 获取详细错误信息
                     String errorMsg = tradingService.getLastErrorMessage();
@@ -678,17 +737,8 @@ public class TradingDecisionProcessor
             }
             
             if (spotOrderId != null && swapOrderId != null) {
-                // 两个订单都成功
-                // 保存待确认订单
-                PendingOrder pending = new PendingOrder();
-                pending.symbol = opp.symbol;
-                pending.action = "OPEN";
-                pending.spotOrderId = spotOrderId;
-                pending.swapOrderId = swapOrderId;
-                pending.createTime = System.currentTimeMillis();
-                
-                pendingOrders.put(spotOrderId, pending);
-                pendingOrders.put(swapOrderId, pending);
+                // 两个订单都成功,记录订单ID
+                logger.info("📝 订单已提交: spotOrderId={}, swapOrderId={}", spotOrderId, swapOrderId);
                 
                 // 立即创建临时持仓状态,防止重复开仓
                 PositionState tempPosition = new PositionState();
@@ -721,6 +771,60 @@ public class TradingDecisionProcessor
                 orderDetailWriter.write(swapLog);
                 
                 logger.info("📝 订单已提交: spotOrderId={}, swapOrderId={}", spotOrderId, swapOrderId);
+                
+                // ⭐ 立即启动异步任务查询订单明细（不依赖 WebSocket 推送）
+                final String finalSymbol = opp.symbol;
+                final String finalSpotOrderId = spotOrderId;
+                final String finalSwapOrderId = swapOrderId;
+                
+                // 延迟 2 秒后查询（给订单成交留出时间）
+                orderQueryExecutor.submit(() -> {
+                    try {
+                        Thread.sleep(2000);  // 等待 2 秒，让订单有时间成交
+                        
+                        logger.info("🔍 开始主动查询订单详情: symbol={}, spotOrderId={}, swapOrderId={}", 
+                            finalSymbol, finalSpotOrderId, finalSwapOrderId);
+                        
+                        // 查询现货订单详情
+                        try {
+                            logger.info("📡 正在查询现货订单详情: orderId={}", finalSpotOrderId);
+                            // 构造现货交易对名称: symbol-USDT (如 BTC-USDT)
+                            String spotInstId = finalSymbol + "-USDT";
+                            com.fasterxml.jackson.databind.JsonNode spotDetail = 
+                                tradingService.queryOrderDetail(finalSpotOrderId, spotInstId, "SPOT");
+                            if (spotDetail != null) {
+                                logger.info("✅ 现货订单详情查询成功,准备保存到CSV: orderId={}", finalSpotOrderId);
+                                saveOrderDetailToCsv(finalSymbol, spotDetail, "SPOT");
+                            } else {
+                                logger.warn("⚠️ 现货订单详情为空,无法保存: orderId={}", finalSpotOrderId);
+                            }
+                        } catch (Exception e) {
+                            logger.error("❌ 查询现货订单详情失败: orderId={}, error={}", 
+                                finalSpotOrderId, e.getMessage(), e);
+                        }
+                        
+                        // 查询合约订单详情
+                        try {
+                            logger.info("📡 正在查询合约订单详情: orderId={}", finalSwapOrderId);
+                            // 构造合约交易对名称: symbol-USDT-SWAP (如 BTC-USDT-SWAP)
+                            String swapInstId = finalSymbol + "-USDT-SWAP";
+                            com.fasterxml.jackson.databind.JsonNode swapDetail = 
+                                tradingService.queryOrderDetail(finalSwapOrderId, swapInstId, "SWAP");
+                            if (swapDetail != null) {
+                                logger.info("✅ 合约订单详情查询成功,准备保存到CSV: orderId={}", finalSwapOrderId);
+                                saveOrderDetailToCsv(finalSymbol, swapDetail, "SWAP");
+                            } else {
+                                logger.warn("⚠️ 合约订单详情为空,无法保存: orderId={}", finalSwapOrderId);
+                            }
+                        } catch (Exception e) {
+                            logger.error("❌ 查询合约订单详情失败: orderId={}, error={}", 
+                                finalSwapOrderId, e.getMessage(), e);
+                        }
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        logger.error("❌ 订单查询任务被中断", e);
+                    }
+                });
             } else if (spotOrderId != null && swapOrderId == null) {
                 // 现货单成功但合约单失败
                 logger.error("❌ 合约下单失败,现货单已提交: {}", spotOrderId);
@@ -744,8 +848,8 @@ public class TradingDecisionProcessor
                     recordFailure(opp.symbol, "合约下单失败");
                 }
                 
-                // ⚠️ 关键修复：创建临时持仓状态，防止继续下单导致持仓超过1个
-                // 虽然合约下单失败，但现货已经提交，需要标记为"持仓中"避免重复下单
+                // ⚠️ 注意：现货已成交，不回滚全局持仓计数
+                // 创建临时持仓状态，防止继续下单导致持仓超过限制
                 PositionState tempPosition = new PositionState();
                 tempPosition.setSymbol(opp.symbol);
                 tempPosition.setOpen(true);  // 标记为持仓中
@@ -781,9 +885,29 @@ public class TradingDecisionProcessor
                 logger.info("📝 已写入合约失败日志: {}", swapErrorLog);
             } else {
                 logger.warn("⚠ 订单提交失败,未创建持仓状态");
+                
+                // ⭐ 回滚全局持仓计数
+                if (positionCountIncremented) {
+                    try {
+                        long newCount = redisManager.decr(REDIS_KEY_POSITION_COUNT);
+                        logger.info("🔄 订单提交失败,已回滚全局持仓计数: {}", newCount);
+                    } catch (Exception e) {
+                        logger.error("❌ 回滚全局持仓计数失败: {}", e.getMessage());
+                    }
+                }
             }
         } catch (Exception e) {
             logger.error("❌ 开仓失败: {}", e.getMessage(), e);
+            
+            // ⭐ 回滚全局持仓计数
+            if (positionCountIncremented) {
+                try {
+                    long newCount = redisManager.decr(REDIS_KEY_POSITION_COUNT);
+                    logger.info("🔄 开仓异常,已回滚全局持仓计数: {}", newCount);
+                } catch (Exception ex) {
+                    logger.error("❌ 回滚全局持仓计数失败: {}", ex.getMessage());
+                }
+            }
             
             // 记录失败
             String errorMsg = e.getMessage();
@@ -832,16 +956,16 @@ public class TradingDecisionProcessor
             }
             
             if (spotOrderId != null && swapOrderId != null) {
-                // 保存待确认订单
-                PendingOrder pending = new PendingOrder();
-                pending.symbol = pos.getSymbol();
-                pending.action = "CLOSE";
-                pending.spotOrderId = spotOrderId;
-                pending.swapOrderId = swapOrderId;
-                pending.createTime = System.currentTimeMillis();
+                // 订单提交成功,记录日志
+                logger.info("📝 平仓订单已提交: spotOrderId={}, swapOrderId={}", spotOrderId, swapOrderId);
                 
-                pendingOrders.put(spotOrderId, pending);
-                pendingOrders.put(swapOrderId, pending);
+                // ⭐ 平仓成功,减少全局持仓计数
+                try {
+                    long newCount = redisManager.decr(REDIS_KEY_POSITION_COUNT);
+                    logger.info("✅ 平仓成功,已减少全局持仓计数: {}", newCount);
+                } catch (Exception e) {
+                    logger.error("❌ 减少全局持仓计数失败: {}", e.getMessage());
+                }
                 
                 // 同步写入订单明细日志（使用线程池）
                 String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
@@ -857,8 +981,6 @@ public class TradingDecisionProcessor
                     timestamp, pos.getSymbol(), pos.getDirection(), swapOrderId, 
                     opp.futuresPrice, pos.getAmount());
                 orderDetailWriter.write(swapLog);
-                
-                logger.info("📝 平仓订单已提交: spotOrderId={}, swapOrderId={}", spotOrderId, swapOrderId);
             }
         } catch (Exception e) {
             logger.error("❌ 平仓失败: {}", e.getMessage(), e);
@@ -872,89 +994,6 @@ public class TradingDecisionProcessor
         }
     }
     
-    /**
-     * 处理订单成交事件
-     * 当现货和合约订单都成交后,确认开仓/平仓
-     * 同时异步查询订单详细信息（成交时间、手续费等）
-     */
-    private void handleOrderFilled(OrderUpdate order, Collector<TradeRecord> out) 
-            throws Exception {
-        
-        PendingOrder pending = pendingOrders.get(order.orderId);
-        if (pending == null) {
-            return;
-        }
-        
-        // 更新订单状态
-        if (order.orderId.equals(pending.spotOrderId)) {
-            pending.spotFilled = true;
-            pending.spotFillPrice = order.fillPrice;
-        } else if (order.orderId.equals(pending.swapOrderId)) {
-            pending.swapFilled = true;
-            pending.swapFillPrice = order.fillPrice;
-        }
-        
-        // 检查是否都成交
-        if (pending.spotFilled && pending.swapFilled) {
-            // ⭐ 使用 orderQueryExecutor 异步查询订单详细信息（不阻塞主流程）
-            // saveOrderDetailToCsv 内部使用 SyncCsvWriter 的线程池写入 CSV
-            String symbol = pending.symbol;
-            String spotOrderId = pending.spotOrderId;
-            String swapOrderId = pending.swapOrderId;
-            
-            logger.info("🔍 开始异步查询订单详情: symbol={}, spotOrderId={}, swapOrderId={}", 
-                symbol, spotOrderId, swapOrderId);
-            
-            // 提交异步任务查询现货订单详情
-            orderQueryExecutor.submit(() -> {
-                try {
-                    logger.info("📡 正在查询现货订单详情: orderId={}", spotOrderId);
-                    com.fasterxml.jackson.databind.JsonNode spotDetail = 
-                        tradingService.queryOrderDetail(spotOrderId, "SPOT");
-                    if (spotDetail != null) {
-                        logger.info("✅ 现货订单详情查询成功,准备保存到CSV: orderId={}", spotOrderId);
-                        // saveOrderDetailToCsv 内部使用 SyncCsvWriter 的线程池写入
-                        saveOrderDetailToCsv(symbol, spotDetail, "SPOT");
-                    } else {
-                        logger.warn("⚠️ 现货订单详情为空,无法保存: orderId={}", spotOrderId);
-                    }
-                } catch (Exception e) {
-                    logger.error("❌ 查询现货订单详情失败: orderId={}, error={}", 
-                        spotOrderId, e.getMessage(), e);
-                }
-            });
-            
-            // 提交异步任务查询合约订单详情
-            orderQueryExecutor.submit(() -> {
-                try {
-                    logger.info("📡 正在查询合约订单详情: orderId={}", swapOrderId);
-                    com.fasterxml.jackson.databind.JsonNode swapDetail = 
-                        tradingService.queryOrderDetail(swapOrderId, "SWAP");
-                    if (swapDetail != null) {
-                        logger.info("✅ 合约订单详情查询成功,准备保存到CSV: orderId={}", swapOrderId);
-                        // saveOrderDetailToCsv 内部使用 SyncCsvWriter 的线程池写入
-                        saveOrderDetailToCsv(symbol, swapDetail, "SWAP");
-                    } else {
-                        logger.warn("⚠️ 合约订单详情为空,无法保存: orderId={}", swapOrderId);
-                    }
-                } catch (Exception e) {
-                    logger.error("❌ 查询合约订单详情失败: orderId={}, error={}", 
-                        swapOrderId, e.getMessage(), e);
-                }
-            });
-            
-            // 确认开仓/平仓（主流程不阻塞）
-            if ("OPEN".equals(pending.action)) {
-                confirmOpen(pending, out);
-            } else {
-                confirmClose(pending, out);
-            }
-            
-            // 清理待确认订单
-            pendingOrders.remove(pending.spotOrderId);
-            pendingOrders.remove(pending.swapOrderId);
-        }
-    }
     
     /**
      * 保存订单详细信息到CSV文件
@@ -1039,143 +1078,7 @@ public class TradingDecisionProcessor
      * 3. 记录失败日志
      * 4. 加入黑名单
      */
-    private void handleOrderFailed(OrderUpdate order, Collector<TradeRecord> out) 
-            throws Exception {
-        
-        PendingOrder pending = pendingOrders.get(order.orderId);
-        if (pending == null) {
-            return;
-        }
-        
-        logger.warn("⚠️ 订单失败: orderId={}, symbol={}, state={}", 
-            order.orderId, pending.symbol, order.state);
-        
-        // 如果是开仓订单失败
-        if ("OPEN".equals(pending.action)) {
-            // 清除临时持仓状态
-            PositionState position = positionState.value();
-            if (position != null && position.isOpen() && pending.symbol.equals(position.getSymbol())) {
-                logger.warn("⚠️ 清除临时持仓状态: symbol={}", pending.symbol);
-                positionState.clear();
-            }
-            
-            // 加入黑名单
-            String failureReason = "订单失败: " + order.state;
-            recordFailure(pending.symbol, failureReason);
-            
-            // 写入失败日志
-            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
-            
-            // 判断是现货还是合约订单失败
-            String orderType = order.orderId.equals(pending.spotOrderId) ? "SPOT" : "SWAP";
-            String errorLog = String.format("%s,%s,OPEN,%s,%s,%s,N/A,N/A,FAILED,%s",
-                timestamp, pending.symbol, "UNKNOWN", orderType, order.orderId, failureReason.replace(",", ";"));
-            orderDetailWriter.write(errorLog);
-        }
-        
-        // 清理待确认订单
-        pendingOrders.remove(pending.spotOrderId);
-        pendingOrders.remove(pending.swapOrderId);
-    }
-    
-    private void confirmOpen(PendingOrder pending, Collector<TradeRecord> out) 
-            throws Exception {
-        
-        logger.info("✅ 开仓确认: {}", pending.symbol);
-        
-        // 清除失败计数
-        clearFailureCount(pending.symbol);
-        
-        // 更新持仓状态
-        PositionState position = new PositionState();
-        position.setSymbol(pending.symbol);
-        position.setOpen(true);
-        position.setDirection("LONG_SPOT_SHORT_SWAP");
-        position.setAmount(tradeAmount);
-        position.setEntrySpotPrice(pending.spotFillPrice);
-        position.setEntrySwapPrice(pending.swapFillPrice);
-        position.setOpenTime(System.currentTimeMillis());
-        
-        positionState.update(position);
-        
-        // 同步写入持仓日志（使用线程池）
-        String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
-        String posLog = String.format("%s,%s,OPEN,%s,%s,%s,%s,N/A,N/A,N/A,N/A,N/A,N/A",
-            timestamp, pending.symbol, "LONG_SPOT_SHORT_SWAP", tradeAmount,
-            pending.spotFillPrice, pending.swapFillPrice);
-        positionWriter.write(posLog);
-        
-        // 输出交易明细
-        TradeRecord record = new TradeRecord();
-        record.symbol = pending.symbol;
-        record.action = "OPEN";
-        record.direction = "LONG_SPOT_SHORT_SWAP";
-        record.amount = tradeAmount;
-        record.spotPrice = pending.spotFillPrice;
-        record.swapPrice = pending.swapFillPrice;
-        record.timestamp = System.currentTimeMillis();
-        
-        out.collect(record);
-    }
-    
-    private void confirmClose(PendingOrder pending, Collector<TradeRecord> out) 
-            throws Exception {
-        
-        logger.info("✅ 平仓确认: {}", pending.symbol);
-        
-        PositionState position = positionState.value();
-        
-        // 计算盈亏
-        BigDecimal entrySpread = position.getEntrySwapPrice().subtract(position.getEntrySpotPrice());
-        BigDecimal exitSpread = pending.swapFillPrice.subtract(pending.spotFillPrice);
-        BigDecimal profit = exitSpread.subtract(entrySpread);
-        BigDecimal profitRate = profit.divide(position.getAmount(), 6, RoundingMode.HALF_UP)
-            .multiply(new BigDecimal("100"));
-        
-        long holdTimeMs = System.currentTimeMillis() - position.getOpenTime();
-        long holdTimeSeconds = holdTimeMs / 1000;
-        
-        // 同步写入持仓日志（使用线程池）
-        String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
-        String posLog = String.format("%s,%s,CLOSE,%s,%s,%s,%s,%s,%s,%s,%s,%d,N/A",
-            timestamp, pending.symbol, position.getDirection(), position.getAmount(),
-            position.getEntrySpotPrice(), position.getEntrySwapPrice(),
-            pending.spotFillPrice, pending.swapFillPrice,
-            profit, profitRate, holdTimeSeconds);
-        positionWriter.write(posLog);
-        
-        // 同步写入交易汇总日志（使用线程池）
-        String result = profit.compareTo(BigDecimal.ZERO) > 0 ? "PROFIT" : "LOSS";
-        String summaryLog = String.format("%s,%s,%s,%s,%s,%s,%d,%s,%s,%s,%s,%s",
-            timestamp, pending.symbol, position.getDirection(), result,
-            profit.setScale(4, RoundingMode.HALF_UP),
-            profitRate.setScale(2, RoundingMode.HALF_UP),
-            holdTimeSeconds,
-            position.getEntrySpotPrice(),
-            position.getEntrySwapPrice(),
-            pending.spotFillPrice,
-            pending.swapFillPrice,
-            position.getAmount());
-        summaryWriter.write(summaryLog);
-        
-        // 更新持仓状态
-        position.setOpen(false);
-        positionState.update(position);
-        
-        // 输出交易明细
-        TradeRecord record = new TradeRecord();
-        record.symbol = pending.symbol;
-        record.action = "CLOSE";
-        record.direction = position.getDirection();
-        record.amount = position.getAmount();
-        record.spotPrice = pending.spotFillPrice;
-        record.swapPrice = pending.swapFillPrice;
-        record.profit = profit;
-        record.holdTimeMs = holdTimeMs;
-        record.timestamp = System.currentTimeMillis();
-        
-        out.collect(record);
-    }
+
 
 
     
@@ -1307,17 +1210,8 @@ public class TradingDecisionProcessor
             return "N/A";
         }
         
-        // 如果价格小于 0.000001，使用科学计数法
-        if (price.compareTo(new BigDecimal("0.000001")) < 0) {
-            return String.format("%.2E", price);  // 科学计数法，2位小数
-        }
-        // 如果价格小于 0.01，使用 8 位小数
-        else if (price.compareTo(new BigDecimal("0.01")) < 0) {
-            return price.setScale(8, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString();
-        }
-        // 否则使用 6 位小数
-        else {
-            return price.setScale(6, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString();
-        }
+        // 保持原始精度,不截断不四舍五入
+        // 移除尾部的零,但保留完整的有效数字
+        return price.stripTrailingZeros().toPlainString();
     }
 }

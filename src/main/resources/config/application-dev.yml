@@ -236,6 +236,7 @@ ticker:
     number: 20
   filter:
     margin-only: true  # 是否只订阅支持现货杠杆的币对(默认true,过滤掉不支持杠杆的币对)
+    min-volume-24h: "300000"  # 最小24小时成交额(USDT),默认30万,过滤掉成交额不足的币种
 
 arbitrage:
   # 监控配置

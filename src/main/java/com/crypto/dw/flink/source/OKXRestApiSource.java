@@ -50,6 +50,7 @@ public class OKXRestApiSource extends RichSourceFunction<OKXRestApiSource.PriceS
     private final long intervalMs;  // 获取价格的间隔时间(毫秒)
     private final int topN;  // 取价差最大的前 N 个
     private final boolean filterMarginOnly;  // 是否只订阅支持现货杠杆的币对
+    private final BigDecimal minVolume24h;  // 最小24小时成交额(USDT),默认30万
     
     private volatile boolean running = true;
     private transient ObjectMapper objectMapper;
@@ -68,6 +69,8 @@ public class OKXRestApiSource extends RichSourceFunction<OKXRestApiSource.PriceS
         this.intervalMs = intervalMs;
         this.topN = topN;
         this.filterMarginOnly = config.getBoolean("ticker.filter.margin-only", true);  // 默认过滤
+        // 读取最小24小时成交额配置,默认30万 USDT
+        this.minVolume24h = new BigDecimal(config.getString("ticker.filter.min-volume-24h", "300000"));
     }
 
     @Override
@@ -158,6 +161,9 @@ public class OKXRestApiSource extends RichSourceFunction<OKXRestApiSource.PriceS
             return prices;
         }
         
+        int totalCount = 0;
+        int filteredByVolume = 0;
+        
         // 解析数据
         JsonNode dataArray = rootNode.get("data");
         if (dataArray != null && dataArray.isArray()) {
@@ -169,8 +175,25 @@ public class OKXRestApiSource extends RichSourceFunction<OKXRestApiSource.PriceS
                     continue;
                 }
                 
+                totalCount++;
+                
                 // 提取币种符号 (去掉 -USDT 后缀)
                 String symbol = instId.replace("-USDT", "");
+                
+                // ⭐ 过滤24小时成交额小于配置值的币种
+                if (item.has("volCcy24h")) {
+                    String volCcy24hStr = item.get("volCcy24h").asText();
+                    try {
+                        BigDecimal volCcy24h = new BigDecimal(volCcy24hStr);
+                        if (volCcy24h.compareTo(minVolume24h) < 0) {
+                            filteredByVolume++;
+                            continue;  // 跳过成交额不足的币种
+                        }
+                    } catch (NumberFormatException e) {
+                        logger.warn("解析24小时成交额失败: {} - {}", symbol, volCcy24hStr);
+                        continue;
+                    }
+                }
                 
                 // 获取最新价格
                 String lastPriceStr = item.get("last").asText();
@@ -179,6 +202,9 @@ public class OKXRestApiSource extends RichSourceFunction<OKXRestApiSource.PriceS
                 prices.put(symbol, lastPrice);
             }
         }
+        
+        logger.info("现货价格筛选: 总数={}, 成交额过滤={}, 保留={}", 
+            totalCount, filteredByVolume, prices.size());
         
         return prices;
     }
@@ -200,6 +226,9 @@ public class OKXRestApiSource extends RichSourceFunction<OKXRestApiSource.PriceS
             return prices;
         }
         
+        int totalCount = 0;
+        int filteredByVolume = 0;
+        
         // 解析数据
         JsonNode dataArray = rootNode.get("data");
         if (dataArray != null && dataArray.isArray()) {
@@ -211,8 +240,25 @@ public class OKXRestApiSource extends RichSourceFunction<OKXRestApiSource.PriceS
                     continue;
                 }
                 
+                totalCount++;
+                
                 // 提取币种符号 (去掉 -USDT-SWAP 后缀)
                 String symbol = instId.replace("-USDT-SWAP", "");
+                
+                // ⭐ 过滤24小时成交额小于配置值的币种
+                if (item.has("volCcy24h")) {
+                    String volCcy24hStr = item.get("volCcy24h").asText();
+                    try {
+                        BigDecimal volCcy24h = new BigDecimal(volCcy24hStr);
+                        if (volCcy24h.compareTo(minVolume24h) < 0) {
+                            filteredByVolume++;
+                            continue;  // 跳过成交额不足的币种
+                        }
+                    } catch (NumberFormatException e) {
+                        logger.warn("解析24小时成交额失败: {} - {}", symbol, volCcy24hStr);
+                        continue;
+                    }
+                }
                 
                 // 获取最新价格
                 String lastPriceStr = item.get("last").asText();
@@ -221,6 +267,9 @@ public class OKXRestApiSource extends RichSourceFunction<OKXRestApiSource.PriceS
                 prices.put(symbol, lastPrice);
             }
         }
+        
+        logger.info("合约价格筛选: 总数={}, 成交额过滤={}, 保留={}", 
+            totalCount, filteredByVolume, prices.size());
         
         return prices;
     }

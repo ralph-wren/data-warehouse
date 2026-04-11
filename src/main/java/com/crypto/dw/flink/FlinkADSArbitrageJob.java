@@ -6,14 +6,11 @@ import com.crypto.dw.flink.factory.FlinkEnvironmentFactory;
 import com.crypto.dw.flink.factory.KafkaSourceFactory;
 import com.crypto.dw.flink.model.ArbitrageOpportunity;
 import com.crypto.dw.flink.model.FuturesPrice;
-import com.crypto.dw.flink.model.OrderUpdate;
 import com.crypto.dw.flink.model.SpotPrice;
 import com.crypto.dw.flink.processor.ArbitrageCalculator;
-import com.crypto.dw.flink.processor.OrderUpdateParser;
 import com.crypto.dw.processor.TradingDecisionProcessor;
 import com.crypto.dw.model.TickerData;
 import com.crypto.dw.model.TradeRecord;
-import com.crypto.dw.trading.OKXOrderWebSocketSource;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.apache.doris.flink.sink.DorisSink;
@@ -38,26 +35,25 @@ import java.time.Duration;
  * 技术特性：
  * 1. 双流 Join：现货价格流 + 合约价格流
  * 2. Interval Join：时间窗口内的流关联
- * 3. 订单流：WebSocket 订单更新
+ * 3. 主动查询：订单明细通过异步任务主动查询
  * 4. 性能优化：异步 CSV 写入、内存缓存、移除黑名单过滤
  * 
  * 数据流图：
  * <pre>
  * Kafka(现货 crypto-ticker-spot) ──┐
- *                                   ├─→ Interval Join ──→ 计算套利空间 ──┐
- * Kafka(合约 crypto-ticker-swap) ──┘                                   │
- *                                                                      ├─→ 交易决策 ──→ Doris
- * WebSocket(订单更新) ────────────────────────────────────────────────┘
+ *                                   ├─→ Interval Join ──→ 计算套利空间 ──→ 交易决策 ──→ Doris
+ * Kafka(合约 crypto-ticker-swap) ──┘
  * </pre>
  * 
  * 重构优化：
+ * - 移除 WebSocket 订单流（改为主动查询）
  * - 移除黑名单过滤（简化数据流）
  * - 使用异步 CSV 写入（提升性能）
  * - 使用内存缓存杠杆支持信息（减少 Redis 查询）
  * - 拆分内部类到独立文件（提升可维护性）
  * 
  * @author Kiro AI Assistant
- * @date 2026-04-11
+ * @date 2026-04-12
  */
 public class FlinkADSArbitrageJob {
     
@@ -69,7 +65,7 @@ public class FlinkADSArbitrageJob {
     public static void main(String[] args) throws Exception {
         logger.info("==========================================");
         logger.info("Flink ADS Arbitrage Job (重构版)");
-        logger.info("双流 Join + 订单流 + 异步优化");
+        logger.info("双流 Join + 主动查询订单明细");
         logger.info("==========================================");
         
         // 加载配置
@@ -183,32 +179,20 @@ public class FlinkADSArbitrageJob {
         
         logger.info("✓ Interval Join 配置成功（时间窗口: ±2 秒）");
         
-        // ========== 步骤 4: 创建订单流 ==========
-        logger.info("创建订单 WebSocket 流...");
-        
-        DataStream<OrderUpdate> orderStream = env
-            .addSource(new OKXOrderWebSocketSource(config))
-            .map(new OrderUpdateParser())
-            .filter(order -> order != null)
-            .name("Parse Order Update");
-        
-        logger.info("✓ 订单流创建成功");
-        
-        // ========== 步骤 5: Connect 套利机会流和订单流 ==========
-        logger.info("配置双流 Join（套利机会 + 订单流）...");
+        // ========== 步骤 4: 处理套利机会并执行交易决策 ==========
+        logger.info("配置交易决策处理器...");
         
         DataStream<TradeRecord> tradeStream = arbitrageStream
             .keyBy(opp -> opp.symbol)
-            .connect(orderStream.keyBy(order -> order.symbol))
             .process(new TradingDecisionProcessor(config))
             .name("Trading Decision");
         
-        logger.info("✓ 双流 Join 配置成功");
+        logger.info("✓ 交易决策处理器配置成功");
         
-        // ========== 步骤 6: 创建 Doris Sink Factory ==========
+        // ========== 步骤 5: 创建 Doris Sink Factory ==========
         DorisSinkFactory dorisSinkFactory = new DorisSinkFactory(config);
         
-        // ========== 步骤 7: 输出交易明细到 Doris ==========
+        // ========== 步骤 6: 输出交易明细到 Doris ==========
         DataStream<String> tradeJsonStream = tradeStream
             .map(record -> {
                 ObjectNode json = OBJECT_MAPPER.createObjectNode();
@@ -239,7 +223,7 @@ public class FlinkADSArbitrageJob {
         logger.info("  Database: crypto_dw");
         logger.info("  Table: dwd_arbitrage_trades");
         
-        // ========== 步骤 8: 输出套利机会到 Doris ==========
+        // ========== 步骤 7: 输出套利机会到 Doris ==========
         DataStream<String> jsonStream = arbitrageStream
             .map(opportunity -> {
                 ObjectNode json = OBJECT_MAPPER.createObjectNode();

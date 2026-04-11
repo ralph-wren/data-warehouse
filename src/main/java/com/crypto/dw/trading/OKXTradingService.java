@@ -299,13 +299,17 @@ public class OKXTradingService implements Serializable {
      * @param symbol 币种名称,如 BTC
      * @param size 卖出数量
      * @param price 当前价格(用于检查订单金额是否满足最小要求)
+     * @param leverage 杠杆倍数
      * @return 订单ID
      */
-    public String sellSpot(String symbol, BigDecimal size, BigDecimal price) {
+    public String sellSpot(String symbol, BigDecimal size, BigDecimal price, int leverage) {
         try {
             // 拼接完整交易对: BTC → BTC-USDT
             String instId = symbol + "-USDT";
-            logger.info("📉 做空现货（卖出）: {} | 数量: {} {}", instId, size, symbol);
+            logger.info("📉 做空现货（卖出）: {} | 数量: {} {} | 杠杆: {}x", instId, size, symbol, leverage);
+            
+            // 先设置杠杆倍数
+            setMarginLeverage(instId, leverage);
             
             // 检查订单金额是否满足最小要求,如果不满足则调整为最小金额
             // 最小订单金额 = max(OKX最小限额10 USDT, 配置的交易金额)
@@ -635,7 +639,7 @@ public class OKXTradingService implements Serializable {
     }
     
     /**
-     * 设置杠杆倍数
+     * 设置杠杆倍数（合约）
      */
     private void setLeverage(String instId, int leverage) {
         try {
@@ -664,12 +668,66 @@ public class OKXTradingService implements Serializable {
             
             try (Response response = httpClient.newCall(request).execute()) {
                 if (response.isSuccessful() && response.body() != null) {
-                    logger.debug("设置杠杆成功: {} = {}x", instId, leverage);
+                    logger.debug("设置合约杠杆成功: {} = {}x", instId, leverage);
                 }
             }
             
         } catch (Exception e) {
-            logger.warn("设置杠杆失败: {}", e.getMessage());
+            logger.warn("设置合约杠杆失败: {}", e.getMessage());
+        }
+    }
+    
+    /**
+     * 设置现货杠杆倍数
+     * 
+     * OKX API 文档: https://www.okx.com/docs-v5/en/#trading-account-rest-api-set-leverage
+     * 
+     * 注意: 现货杠杆和合约杠杆使用不同的 API
+     */
+    private void setMarginLeverage(String instId, int leverage) {
+        try {
+            // 生成 OKX API 要求的时间戳格式: yyyy-MM-dd'T'HH:mm:ss.SSS'Z'
+            String timestamp = getIsoTimestamp();
+            String method = "POST";
+            String requestPath = "/api/v5/account/set-leverage";
+            
+            ObjectNode body = OBJECT_MAPPER.createObjectNode();
+            body.put("instId", instId);
+            body.put("lever", String.valueOf(leverage));
+            body.put("mgnMode", "cross");  // 全仓模式
+            
+            String bodyStr = body.toString();
+            String sign = generateSignature(timestamp, method, requestPath, bodyStr);
+            
+            Request request = new Request.Builder()
+                .url(baseUrl + requestPath)
+                .post(RequestBody.create(bodyStr, JSON))
+                .addHeader("OK-ACCESS-KEY", apiKey)
+                .addHeader("OK-ACCESS-SIGN", sign)
+                .addHeader("OK-ACCESS-TIMESTAMP", timestamp)
+                .addHeader("OK-ACCESS-PASSPHRASE", passphrase)
+                .addHeader("Content-Type", "application/json")
+                .build();
+            
+            try (Response response = httpClient.newCall(request).execute()) {
+                String responseBody = response.body() != null ? response.body().string() : "";
+                
+                if (response.isSuccessful() && !responseBody.isEmpty()) {
+                    JsonNode jsonResponse = OBJECT_MAPPER.readTree(responseBody);
+                    
+                    if ("0".equals(jsonResponse.get("code").asText())) {
+                        logger.info("✓ 设置现货杠杆成功: {} = {}x", instId, leverage);
+                    } else {
+                        String errorMsg = jsonResponse.get("msg").asText();
+                        logger.warn("⚠ 设置现货杠杆失败: {} - {}", instId, errorMsg);
+                    }
+                } else {
+                    logger.warn("⚠ 设置现货杠杆请求失败: HTTP {}", response.code());
+                }
+            }
+            
+        } catch (Exception e) {
+            logger.warn("设置现货杠杆异常: {}", e.getMessage());
         }
     }
     
@@ -1068,6 +1126,63 @@ public class OKXTradingService implements Serializable {
      * @param ccy 币种,如 BTC
      * @return 小时利率,如果查询失败返回 null
      */
+    
+    /**
+     * 查询币种是否支持杠杆交易
+     * 
+     * @param symbol 币种符号（如 BTC）
+     * @return true=支持杠杆，false=不支持杠杆
+     */
+    public boolean checkMarginSupport(String symbol) {
+        try {
+            initHttpClient();
+            
+            // 查询现货杠杆交易对信息
+            // API: GET /api/v5/public/instruments?instType=MARGIN&instId=BTC-USDT
+            // 注意：symbol 可能已经包含 -USDT 后缀，需要处理
+            String instId = symbol.contains("-") ? symbol : (symbol + "-USDT");
+            String url = baseUrl + "/api/v5/public/instruments?instType=MARGIN&instId=" + instId;
+            
+            Request request = new Request.Builder()
+                .url(url)
+                .get()
+                .build();
+            
+            try (Response response = httpClient.newCall(request).execute()) {
+                String responseBody = response.body() != null ? response.body().string() : "";
+                
+                if (response.isSuccessful() && !responseBody.isEmpty()) {
+                    JsonNode jsonResponse = OBJECT_MAPPER.readTree(responseBody);
+                    
+                    if ("0".equals(jsonResponse.get("code").asText())) {
+                        JsonNode dataArray = jsonResponse.get("data");
+                        
+                        // 如果 data 数组不为空，说明支持杠杆交易
+                        if (dataArray != null && dataArray.isArray() && dataArray.size() > 0) {
+                            logger.info("✓ {} 支持杠杆交易", instId);
+                            return true;
+                        } else {
+                            logger.info("✗ {} 不支持杠杆交易", instId);
+                            return false;
+                        }
+                    } else {
+                        String errorMsg = jsonResponse.get("msg").asText();
+                        logger.warn("查询杠杆支持失败: {}", errorMsg);
+                        // 如果是 Instrument ID doesn't exist，说明不支持杠杆，返回 false
+                        return false;
+                    }
+                } else {
+                    logger.error("查询杠杆支持请求失败: HTTP {}", response.code());
+                    return false;
+                }
+            }
+            
+        } catch (Exception e) {
+            logger.error("查询杠杆支持异常: {}", e.getMessage(), e);
+            return false;
+        }
+    }
+    
     private BigDecimal queryBorrowInterestRate(String ccy) {
         try {
             // 构建请求路径

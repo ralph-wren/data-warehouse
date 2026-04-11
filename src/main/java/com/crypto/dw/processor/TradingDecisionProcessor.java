@@ -40,6 +40,7 @@ public class TradingDecisionProcessor
     private final ConfigLoader config;
     private final boolean tradingEnabled;
     private final BigDecimal tradeAmount;
+    private final int leverage;  // 杠杆倍数
     private final BigDecimal openThreshold;
     private final BigDecimal closeThreshold;
     private final long maxHoldTimeMs;
@@ -59,6 +60,7 @@ public class TradingDecisionProcessor
         this.config = config;
         this.tradingEnabled = config.getBoolean("arbitrage.trading.enabled", false);
         this.tradeAmount = new BigDecimal(config.getString("arbitrage.trading.trade-amount", "100"));
+        this.leverage = config.getInt("arbitrage.trading.leverage", 1);  // 读取杠杆倍数配置,默认1倍
         this.openThreshold = new BigDecimal(config.getString("arbitrage.trading.open-threshold", "0.005"));
         this.closeThreshold = new BigDecimal(config.getString("arbitrage.trading.close-threshold", "0.002"));
         
@@ -347,15 +349,15 @@ public class TradingDecisionProcessor
         
         try {
             if (opp.arbitrageDirection.contains("做多现货")) {
-                // 策略 A: 做多现货 + 做空合约
+                // 策略 A: 做多现货 + 做空合约（使用配置的杠杆倍数）
                 direction = "LONG_SPOT_SHORT_SWAP";
                 spotOrderId = tradingService.buySpot(opp.symbol, tradeAmount, opp.spotPrice);
-                swapOrderId = tradingService.shortSwap(opp.symbol, tradeAmount, 1);
+                swapOrderId = tradingService.shortSwap(opp.symbol, tradeAmount, leverage);
             } else {
-                // 策略 B: 做空现货 + 做多合约
+                // 策略 B: 做空现货 + 做多合约（使用配置的杠杆倍数）
                 direction = "SHORT_SPOT_LONG_SWAP";
-                spotOrderId = tradingService.sellSpot(opp.symbol, tradeAmount, opp.spotPrice);
-                swapOrderId = tradingService.longSwap(opp.symbol, tradeAmount, 1);
+                spotOrderId = tradingService.sellSpot(opp.symbol, tradeAmount, opp.spotPrice, leverage);
+                swapOrderId = tradingService.longSwap(opp.symbol, tradeAmount, leverage);
             }
             
             if (spotOrderId != null && swapOrderId != null) {
@@ -405,7 +407,8 @@ public class TradingDecisionProcessor
             String swapOrderId = null;
             
             if ("LONG_SPOT_SHORT_SWAP".equals(pos.getDirection())) {
-                spotOrderId = tradingService.sellSpot(pos.getSymbol(), pos.getAmount(), opp.spotPrice);
+                // 平仓时的 sellSpot 不需要杠杆，但为了保持接口一致，传入 leverage 参数
+                spotOrderId = tradingService.sellSpot(pos.getSymbol(), pos.getAmount(), opp.spotPrice, leverage);
                 swapOrderId = tradingService.closeShortSwap(pos.getSymbol(), pos.getAmount());
             } else {
                 spotOrderId = tradingService.buySpot(pos.getSymbol(), pos.getAmount(), opp.spotPrice);

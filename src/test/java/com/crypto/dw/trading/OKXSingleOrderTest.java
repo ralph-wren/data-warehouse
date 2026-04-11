@@ -48,7 +48,7 @@ public class OKXSingleOrderTest {
             System.out.println("========================================");
             System.out.println();
             
-            String orderId = tradingService.buySpot("BTC-USDT", new BigDecimal("6"));
+            String orderId = tradingService.buySpot("BTC-USDT", new BigDecimal("6"),new BigDecimal("1"));
             
             System.out.println();
             if (orderId != null) {

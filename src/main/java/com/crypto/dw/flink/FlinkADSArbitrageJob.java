@@ -50,6 +50,12 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -739,8 +745,9 @@ public class FlinkADSArbitrageJob {
         private transient MapState<String, PendingOrder> pendingOrders;
         private transient ValueState<OpportunityTracker> opportunityTracker;  // 新增:跟踪套利机会持续时间
         
-        // 新增: 失败币种黑名单,如果首次下单失败,不再尝试
-        private transient Set<String> failedSymbols;
+        // 新增: 失败策略黑名单,为每个币种维护两种策略的独立黑名单
+        // Key: symbol, Value: Set<strategy> (LONG_SPOT_SHORT_SWAP 或 SHORT_SPOT_LONG_SWAP)
+        private transient Map<String, Set<String>> failedStrategies;
         
         // 新增: CSV 日志记录器 - 改为两个文件
         private transient BufferedWriter orderDetailWriter;  // 订单明细日志
@@ -794,8 +801,8 @@ public class FlinkADSArbitrageJob {
             );
             opportunityTracker = getRuntimeContext().getState(trackerDescriptor);
             
-            // 初始化失败币种黑名单
-            failedSymbols = new HashSet<>();
+            // 初始化失败策略黑名单
+            failedStrategies = new HashMap<>();
             
             // 初始化 CSV 日志记录器（两个文件）
             try {
@@ -1229,9 +1236,14 @@ public class FlinkADSArbitrageJob {
         private void openPosition(ArbitrageOpportunity opp, Collector<TradeRecord> out) 
                 throws Exception {
             
-            // 检查是否在失败黑名单中
-            if (failedSymbols.contains(opp.symbol)) {
-//                logger.warn("⚠ 跳过交易: {} 在失败黑名单中", opp.symbol);
+            // 确定策略方向
+            String strategyDirection = opp.arbitrageDirection.contains("做多现货") ? 
+                "LONG_SPOT_SHORT_SWAP" : "SHORT_SPOT_LONG_SWAP";
+            
+            // 检查该币种的该策略是否在失败黑名单中
+            Set<String> failedStrategiesForSymbol = failedStrategies.get(opp.symbol);
+            if (failedStrategiesForSymbol != null && failedStrategiesForSymbol.contains(strategyDirection)) {
+                // 该币种的该策略已失败，跳过
                 return;
             }
             
@@ -1303,9 +1315,10 @@ public class FlinkADSArbitrageJob {
                     "无法计算合约张数"
                 );
                 
-                // 加入失败黑名单
-                failedSymbols.add(opp.symbol);
-                logger.warn("🚫 {} 已加入失败黑名单,不再尝试交易", opp.symbol);
+                // 加入失败黑名单（该币种的该策略）
+                failedStrategies.computeIfAbsent(opp.symbol, k -> new HashSet<>())
+                    .add(strategyDirection);
+                logger.warn("🚫 {} 的策略 {} 已加入失败黑名单", opp.symbol, strategyDirection);
                 
                 return;
             }
@@ -1339,9 +1352,10 @@ public class FlinkADSArbitrageJob {
                     "计算的张数为 0"
                 );
                 
-                // 加入失败黑名单
-                failedSymbols.add(opp.symbol);
-                logger.warn("🚫 {} 已加入失败黑名单,不再尝试交易", opp.symbol);
+                // 加入失败黑名单（该币种的该策略）
+                failedStrategies.computeIfAbsent(opp.symbol, k -> new HashSet<>())
+                    .add(strategyDirection);
+                logger.warn("🚫 {} 的策略 {} 已加入失败黑名单", opp.symbol, strategyDirection);
                 
                 return;
             }
@@ -1350,11 +1364,15 @@ public class FlinkADSArbitrageJob {
             String swapOrderId = null;
             String direction = null;
             boolean orderSuccess = false;
+            boolean strategySkipped = false;  // 标记策略是否因不适用而跳过
             String errorMsg = null;
             
             try {
+                // 检查币对是否支持杠杆交易
+                boolean marginSupported = tradingService.checkMarginSupport(opp.symbol);
+                
                 if (opp.arbitrageDirection.contains("做多现货")) {
-                    // 策略 A: 做多现货 + 做空合约
+                    // 策略 A: 做多现货 + 做空合约（现货模式，不需要杠杆）
                     direction = "LONG_SPOT_SHORT_SWAP";
                     
                     // 先下现货单（传入价格用于检查订单金额）
@@ -1389,25 +1407,20 @@ public class FlinkADSArbitrageJob {
                         swapOrderId = tradingService.shortSwap(opp.symbol, contractSize, leverage);
                     }
                 } else {
-                    // 策略 B: 做空现货 + 做多合约（使用杠杆模式）
-                    direction = "SHORT_SPOT_LONG_SWAP";
+                    // 策略 B: 做空现货 + 做多合约（需要杠杆模式）
                     
-                    // 先下现货单（会自动查询借币利息，并检查订单金额）
-                    spotOrderId = tradingService.sellSpot(opp.symbol, contractSize, opp.spotPrice);
-                    
-                    // 检查现货单是否成功
-                    if (spotOrderId == null) {
-                        // 获取详细错误信息
-                        errorMsg = tradingService.getLastErrorMessage();
-                        if (errorMsg == null || errorMsg.isEmpty()) {
-                            errorMsg = "现货下单失败,跳过合约下单";
-                        }
-                        logger.error("❌ {}: {}", opp.symbol, errorMsg);
+                    // 检查是否支持杠杆交易
+                    if (!marginSupported) {
+                        errorMsg = "币对不支持杠杆交易,无法做空现货";
+                        logger.warn("⚠ {}: {}", opp.symbol, errorMsg);
                         
-                        // 记录现货下单失败的订单明细
+                        // 标记为策略跳过（不是真正的下单失败）
+                        strategySkipped = true;
+                        
+                        // 记录失败日志
                         logOrderDetail(
                             opp.symbol,
-                            null,  // 订单ID为空
+                            null,
                             "SPOT",
                             "SELL",
                             contractSize,
@@ -1416,12 +1429,48 @@ public class FlinkADSArbitrageJob {
                             null,
                             null,
                             null,
-                            "FAILED",
+                            "SKIPPED",  // 状态改为 SKIPPED
                             errorMsg
                         );
+                        
+                        // 不执行下单，直接跳过
+                        spotOrderId = null;
+                        swapOrderId = null;
                     } else {
-                        // 现货单成功,再下合约单（使用配置的杠杆倍数）
-                        swapOrderId = tradingService.longSwap(opp.symbol, contractSize, leverage);
+                        // 支持杠杆，可以做空现货
+                        direction = "SHORT_SPOT_LONG_SWAP";
+                        
+                        // 先下现货单（会自动查询借币利息，并检查订单金额，同时设置杠杆倍数）
+                        spotOrderId = tradingService.sellSpot(opp.symbol, contractSize, opp.spotPrice, leverage);
+                        
+                        // 检查现货单是否成功
+                        if (spotOrderId == null) {
+                            // 获取详细错误信息
+                            errorMsg = tradingService.getLastErrorMessage();
+                            if (errorMsg == null || errorMsg.isEmpty()) {
+                                errorMsg = "现货下单失败,跳过合约下单";
+                            }
+                            logger.error("❌ {}: {}", opp.symbol, errorMsg);
+                            
+                            // 记录现货下单失败的订单明细
+                            logOrderDetail(
+                                opp.symbol,
+                                null,  // 订单ID为空
+                                "SPOT",
+                                "SELL",
+                                contractSize,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                "FAILED",
+                                errorMsg
+                            );
+                        } else {
+                            // 现货单成功,再下合约单（使用配置的杠杆倍数）
+                            swapOrderId = tradingService.longSwap(opp.symbol, contractSize, leverage);
+                        }
                     }
                 }
                 
@@ -1535,7 +1584,8 @@ public class FlinkADSArbitrageJob {
                 }
             }
             
-            // 如果下单失败,记录日志并加入黑名单
+            // 如果下单失败,记录日志
+            // 注意：只有真正的下单失败才加入黑名单，策略跳过不加入黑名单
             if (!orderSuccess) {
                 logTradeToCsv(
                     opp.symbol,
@@ -1547,13 +1597,19 @@ public class FlinkADSArbitrageJob {
                     opp.spotPrice,
                     opp.futuresPrice,
                     opp.spreadRate,
-                    "FAILED",
+                    strategySkipped ? "SKIPPED" : "FAILED",  // 区分跳过和失败
                     errorMsg
                 );
                 
-                // 加入失败黑名单
-                failedSymbols.add(opp.symbol);
-                logger.warn("🚫 {} 已加入失败黑名单,不再尝试交易", opp.symbol);
+                // 只有真正的下单失败才加入黑名单（该币种的该策略）
+                // 策略跳过（如不支持杠杆）不加入黑名单，因为该币种仍可执行其他策略
+                if (!strategySkipped) {
+                    failedStrategies.computeIfAbsent(opp.symbol, k -> new HashSet<>())
+                        .add(strategyDirection);
+                    logger.warn("🚫 {} 的策略 {} 已加入失败黑名单", opp.symbol, strategyDirection);
+                } else {
+                    logger.info("ℹ️ {} 策略B跳过（不支持杠杆），但仍可执行策略A", opp.symbol);
+                }
             }
         }
         
@@ -1572,7 +1628,9 @@ public class FlinkADSArbitrageJob {
             try {
                 // 策略 A 平仓: 卖出现货 + 平空合约
                 // 只使用这一种策略
-                spotOrderId = tradingService.sellSpot(pos.getSymbol(), pos.getAmount(), opp.spotPrice);
+                // 注意: 平仓时的 sellSpot 不需要杠杆，因为是卖出已持有的币
+                // 但为了保持接口一致，传入 leverage 参数（实际不会用到）
+                spotOrderId = tradingService.sellSpot(pos.getSymbol(), pos.getAmount(), opp.spotPrice, leverage);
                 swapOrderId = tradingService.closeShortSwap(pos.getSymbol(), pos.getAmount());
                 
                 if (spotOrderId != null && swapOrderId != null) {
@@ -1932,6 +1990,16 @@ public class FlinkADSArbitrageJob {
             // 更新持仓状态
             position.setOpen(false);
             positionState.update(position);
+            
+            // 平仓成功后，减少全局持仓计数
+            if (redisManager != null) {
+                try {
+                    long currentCount = redisManager.decr(POSITION_COUNT_KEY);
+                    logger.info("📉 持仓数量减少: {} -> {}/{}", pending.symbol, currentCount, maxPositions);
+                } catch (Exception e) {
+                    logger.error("减少持仓计数失败: {}", e.getMessage(), e);
+                }
+            }
             
             // 输出交易明细
             TradeRecord record = new TradeRecord();

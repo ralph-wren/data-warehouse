@@ -57,7 +57,7 @@ public class OKXTradingService implements Serializable {
     private transient MarginSupportCache marginCache;
     
     // Redis Hash Key,用于存储交易对信息
-    private static final String INSTRUMENT_CACHE_KEY = "okx:instrument:cache";
+    private static final String INSTRUMENT_CACHE_KEY = "okx:swap:instrument:cache";
     
     // 最近查询的借币利息率（用于在开仓后获取）
     private BigDecimal lastBorrowInterestRate = null;
@@ -75,23 +75,26 @@ public class OKXTradingService implements Serializable {
         public final BigDecimal ctVal;   // 合约面值,如 0.1 表示 1 张 = 0.1 个币
         public final BigDecimal lotSz;   // 最小交易单位,如 1 表示最小下单 1 张
         public final BigDecimal minSz;   // 最小下单数量
+        public final BigDecimal lever;  // 杠杆倍数
         
         @com.fasterxml.jackson.annotation.JsonCreator
         public InstrumentInfo(
                 @com.fasterxml.jackson.annotation.JsonProperty("instId") String instId,
                 @com.fasterxml.jackson.annotation.JsonProperty("ctVal") BigDecimal ctVal,
                 @com.fasterxml.jackson.annotation.JsonProperty("lotSz") BigDecimal lotSz,
-                @com.fasterxml.jackson.annotation.JsonProperty("minSz") BigDecimal minSz) {
+                @com.fasterxml.jackson.annotation.JsonProperty("minSz") BigDecimal minSz,
+                @com.fasterxml.jackson.annotation.JsonProperty("lever") BigDecimal lever) {
             this.instId = instId;
             this.ctVal = ctVal;
             this.lotSz = lotSz;
             this.minSz = minSz;
+            this.lever = lever;
         }
         
         @Override
         public String toString() {
-            return String.format("InstrumentInfo{instId='%s', ctVal=%s, lotSz=%s, minSz=%s}", 
-                instId, ctVal, lotSz, minSz);
+            return String.format("InstrumentInfo{instId='%s', ctVal=%s, lotSz=%s, minSz=%s, lever=%s}",
+                instId, ctVal, lotSz, minSz,lever);
         }
     }
     
@@ -1141,21 +1144,7 @@ public class OKXTradingService implements Serializable {
     public InstrumentInfo getInstrumentInfo(String symbol) {
         try {
             String instId = symbol + "-USDT-SWAP";
-            
-            // 1. 先从 Redis 缓存中查找
-            if (redisManager != null) {
-                String cachedJson = redisManager.hget(INSTRUMENT_CACHE_KEY, instId);
-                if (cachedJson != null && !cachedJson.isEmpty()) {
-                    try {
-                        InstrumentInfo info = OBJECT_MAPPER.readValue(cachedJson, InstrumentInfo.class);
-                        logger.debug("✓ 从 Redis 缓存获取交易对信息: {}", info);
-                        return info;
-                    } catch (Exception e) {
-                        logger.warn("解析 Redis 缓存失败,将重新查询: {}", e.getMessage());
-                    }
-                }
-            }
-            
+
             // 2. 缓存中没有,调用 API 查询
             initHttpClient();
             
@@ -1176,8 +1165,9 @@ public class OKXTradingService implements Serializable {
                         BigDecimal ctVal = new BigDecimal(data.get("ctVal").asText());
                         BigDecimal lotSz = new BigDecimal(data.get("lotSz").asText());
                         BigDecimal minSz = new BigDecimal(data.get("minSz").asText());
+                        BigDecimal lever = new BigDecimal(data.get("lever").asText());
                         
-                        InstrumentInfo info = new InstrumentInfo(instId, ctVal, lotSz, minSz);
+                        InstrumentInfo info = new InstrumentInfo(instId, ctVal, lotSz, minSz,lever);
                         
                         // 3. 缓存结果到 Redis
                         if (redisManager != null) {
@@ -1425,6 +1415,83 @@ public class OKXTradingService implements Serializable {
         } catch (Exception e) {
             logger.error("查询杠杆支持异常: {}", e.getMessage(), e);
             return false;
+        }
+    }
+    
+    /**
+     * 查询币种的杠杆倍数（同时存储到 Redis）
+     * 
+     * @param symbol 币种符号（如 BTC 或 BTC-USDT）
+     * @return 杠杆倍数字符串（如 "10"），如果不支持杠杆返回 null
+     */
+    public String getMarginLeverage(String symbol) {
+        try {
+            initHttpClient();
+            
+            // 查询现货杠杆交易对信息
+            // API: GET /api/v5/public/instruments?instType=MARGIN&instId=BTC-USDT
+            String instId = symbol.contains("-") ? symbol : (symbol + "-USDT");
+            String url = baseUrl + "/api/v5/public/instruments?instType=MARGIN&instId=" + instId;
+            
+            Request request = new Request.Builder()
+                .url(url)
+                .get()
+                .build();
+            
+            try (Response response = httpClient.newCall(request).execute()) {
+                String responseBody = response.body() != null ? response.body().string() : "";
+                
+                if (response.isSuccessful() && !responseBody.isEmpty()) {
+                    JsonNode jsonResponse = OBJECT_MAPPER.readTree(responseBody);
+                    
+                    if ("0".equals(jsonResponse.get("code").asText())) {
+                        JsonNode dataArray = jsonResponse.get("data");
+                        
+                        String leverageValue;
+                        // 如果 data 数组不为空，说明支持杠杆交易
+                        if (dataArray != null && dataArray.isArray() && dataArray.size() > 0) {
+                            JsonNode instrument = dataArray.get(0);
+                            // 获取最大杠杆倍数
+                            JsonNode leverNode = instrument.get("lever");
+                            if (leverNode != null && !leverNode.isNull()) {
+                                leverageValue = leverNode.asText();
+                                logger.info("✓ {} 支持杠杆交易，最大杠杆: {}x", instId, leverageValue);
+                            } else {
+                                logger.warn("⚠️ {} 支持杠杆但未返回杠杆倍数", instId);
+                                leverageValue = "10"; // 默认返回10倍杠杆
+                            }
+                        } else {
+                            logger.info("✗ {} 不支持杠杆交易", instId);
+                            leverageValue = "0"; // 不支持杠杆，存储 "0"
+                        }
+                        
+                        // 存储到 Redis
+                        if (redisManager != null) {
+                            try {
+                                redisManager.hset("okx:spot:margin:support", instId, leverageValue);
+                                logger.debug("✓ 已存储杠杆信息到 Redis: {} -> {}", instId, leverageValue);
+                            } catch (Exception e) {
+                                logger.warn("⚠️ 存储杠杆信息到 Redis 失败: {}", e.getMessage());
+                            }
+                        }
+                        
+                        // 返回结果（"0" 表示不支持杠杆，返回 null）
+                        return "0".equals(leverageValue) ? null : leverageValue;
+                        
+                    } else {
+                        String errorMsg = jsonResponse.get("msg").asText();
+                        logger.warn("查询杠杆倍数失败: {}", errorMsg);
+                        return null;
+                    }
+                } else {
+                    logger.error("查询杠杆倍数请求失败: HTTP {}", response.code());
+                    return null;
+                }
+            }
+            
+        } catch (Exception e) {
+            logger.error("查询杠杆倍数异常: {}", e.getMessage(), e);
+            return null;
         }
     }
     

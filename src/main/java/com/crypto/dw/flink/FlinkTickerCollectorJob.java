@@ -112,10 +112,6 @@ public class FlinkTickerCollectorJob {
         logger.info("OKX WebSocket URL: " + config.getString("okx.websocket.url"));
         logger.info("================");
 
-        // 使用工厂类创建 Flink Stream Environment (减少重复代码)
-        // 注意: 使用端口 8085 避免与其他作业冲突
-        FlinkEnvironmentFactory envFactory = new FlinkEnvironmentFactory(config);
-        StreamExecutionEnvironment env = envFactory.createStreamEnvironment("flink-data-collector-job", 8085);
 
         // ========================================
         // 步骤1: 启动时计算一次价差,获取价差最大的前10个币对
@@ -123,14 +119,21 @@ public class FlinkTickerCollectorJob {
         logger.info("==========================================");
         logger.info("计算价差,获取价差最大的币对...");
         logger.info("==========================================");
-        
+
         List<String> symbols = getSymbolsWithSpreadCalculation(args, config);
         logger.info("订阅币对列表 ({}个): {}", symbols.size(), symbols);
-        
+
         // ========================================
-        // 步骤2: 启动定时任务,定期刷新缓存
+        // 步骤3: 刷新缓存
         // ========================================
-        startCacheRefreshTask(config);
+        refreshCache(symbols,config);
+
+
+        // 使用工厂类创建 Flink Stream Environment (减少重复代码)
+        // 注意: 使用端口 8085 避免与其他作业冲突
+        FlinkEnvironmentFactory envFactory = new FlinkEnvironmentFactory(config);
+        StreamExecutionEnvironment env = envFactory.createStreamEnvironment("flink-data-collector-job", 8085);
+
 
         // 获取 Kafka 配置
         String kafkaBootstrapServers = config.getString("kafka.bootstrap-servers");
@@ -313,55 +316,6 @@ public class FlinkTickerCollectorJob {
         return defaultSymbols;
     }
 
-    /**
-     * 启动定时任务,定期刷新缓存
-     * <p>
-     * 缓存内容:
-     * 1. 杠杆支持信息 (Redis Hash: okx:margin:support)
-     * 2. 交易对信息 (Redis Hash: okx:instrument:cache)
-     * 3. 借币利息率 (Redis Hash: okx:borrow:interest)
-     * <p>
-     * 缓存格式:
-     * - okx:margin:support: {symbol: flags}
-     *   - flags: "1" = 支持策略A (现货卖出+合约买入)
-     *   - flags: "2" = 支持策略B (现货买入+合约卖出)
-     *   - flags: "12" = 都支持
-     * - okx:instrument:cache: {symbol: JSON}
-     *   - JSON: {"minSz": "0.01", "ctVal": "0.01", ...}
-     * - okx:borrow:interest: {symbol: interestRate}
-     *   - interestRate: 小时利率,如 "0.0000040833333334"
-     * 
-     * @param config 配置加载器
-     */
-    private static void startCacheRefreshTask(ConfigLoader config) {
-        // 读取配置
-        int topSymbolsCount = config.getInt("arbitrage.monitor.top-symbols-count", 10);
-        int refreshIntervalSeconds = config.getInt("arbitrage.cache.refresh-interval-seconds", 300);
-        
-        logger.info("==========================================");
-        logger.info("启动缓存刷新定时任务");
-        logger.info("监控币对数量: {}", topSymbolsCount);
-        logger.info("刷新间隔: {} 秒", refreshIntervalSeconds);
-        logger.info("==========================================");
-        
-        // 创建定时任务
-        ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "cache-refresh-task");
-            t.setDaemon(true); // 设置为守护线程,主线程退出时自动退出
-            return t;
-        });
-        
-        // 立即执行一次,然后定期执行
-        scheduler.scheduleAtFixedRate(() -> {
-            try {
-                refreshCache(config, topSymbolsCount);
-            } catch (Exception e) {
-                logger.error("缓存刷新失败: {}", e.getMessage(), e);
-            }
-        }, 0, refreshIntervalSeconds, TimeUnit.SECONDS);
-        
-        logger.info("缓存刷新定时任务已启动");
-    }
     
     /**
      * 刷新缓存
@@ -369,21 +323,19 @@ public class FlinkTickerCollectorJob {
      * @param config 配置加载器
      * @param topN 监控的币对数量
      */
-    private static void refreshCache(ConfigLoader config, int topN) {
+    private static void refreshCache(List<String> topSymbols, ConfigLoader config) {
         logger.info("开始刷新缓存...");
         long startTime = System.currentTimeMillis();
         
         try {
             // 1. 计算价差最大的币对
-            Integer cryptoNum = config.getInt("ticker.subscribe.number");
-            List<String> topSymbols = calculateTopSpreadSymbols(config, cryptoNum);
             if (topSymbols == null || topSymbols.isEmpty()) {
                 logger.warn("未获取到价差数据,跳过缓存刷新");
                 return;
             }
-            
+
             logger.info("获取到 {} 个价差最大的币对: {}", topSymbols.size(), topSymbols);
-            
+
             // 2. 创建 OKXTradingService 实例
             OKXTradingService tradingService = new OKXTradingService(config);
             
@@ -397,62 +349,50 @@ public class FlinkTickerCollectorJob {
                         // 移除 -USDT 后缀,得到币种名称
                         String symbol = symbolWithSuffix.replace("-USDT", "");
                         
-                        // 4.1 查询杠杆支持信息
-                        boolean supportsMargin = tradingService.checkMarginSupport(symbol);
-                        
-                        // 确定支持的策略标识
-                        // 策略A: 现货卖出 + 合约买入 (需要杠杆)
-                        // 策略B: 现货买入 + 合约卖出 (不需要杠杆)
-                        String flags;
-                        if (supportsMargin) {
-                            flags = "12"; // 都支持
-                        } else {
-                            flags = "2";  // 只支持策略B
-                        }
+                        // 4.1 查询现货杠杆支持信息（返回实际杠杆倍数）
+                        // 返回值：杠杆倍数字符串（如 "10"）或 null（不支持杠杆）
+                        String leverageStr = tradingService.getMarginLeverage(symbol);
                         
                         // 存入 Redis Hash: okx:margin:support
-                        jedis.hset("okx:margin:support", symbolWithSuffix, flags);
-                        logger.debug("缓存杠杆支持信息: {} -> {}", symbolWithSuffix, flags);
+                        // value 格式：杠杆倍数（如 "10"）或 "0"（不支持杠杆）
+                        String value = (leverageStr != null && !leverageStr.isEmpty()) ? leverageStr : "0";
+                        jedis.hset("okx:spot:margin:support", symbolWithSuffix, value);
                         
-                        // 4.2 查询交易对信息
+                        if ("0".equals(value)) {
+                            logger.debug("缓存杠杆支持信息: {} -> 不支持杠杆（只支持策略B：现货买入+合约卖出）", symbolWithSuffix);
+                        } else {
+                            logger.debug("缓存杠杆支持信息: {} -> 杠杆倍数 {}x（支持策略A和B）", symbolWithSuffix, value);
+                        }
+                        
+                        // 4.3 查询现货借币利息率（仅当支持杠杆时）
+                        if (!"0".equals(value)) {
+                            java.math.BigDecimal interestRate = tradingService.queryBorrowInterestRate(symbol);
+                            if (interestRate != null) {
+                                // 存入 Redis Hash: okx:borrow:interest
+                                jedis.hset("okx:spot:borrow:interest", symbol, interestRate.toPlainString());
+                                logger.debug("缓存借币利息率: {} -> {} (小时利率)", symbol, interestRate);
+                            } else {
+                                logger.warn("未查询到 {} 的借币利息率", symbol);
+                            }
+                        }
+
+                        // 4.2 查询交易对合约信息
                         OKXTradingService.InstrumentInfo instrumentInfo = tradingService.getInstrumentInfo(symbol);
                         if (instrumentInfo != null) {
                             // 转换为 JSON 字符串
                             ObjectMapper mapper = new ObjectMapper();
                             String json = mapper.writeValueAsString(instrumentInfo);
-                            
+
                             // 存入 Redis Hash: okx:instrument:cache
-                            jedis.hset("okx:instrument:cache", symbol, json);
-                            logger.debug("缓存交易对信息: {} -> minSz={}, ctVal={}", 
-                                symbol, instrumentInfo.minSz, instrumentInfo.ctVal);
-                        }
-                        
-                        // 4.3 查询借币利息率（仅当支持杠杆时）
-                        if (supportsMargin) {
-                            java.math.BigDecimal interestRate = tradingService.queryBorrowInterestRate(symbol);
-                            if (interestRate != null) {
-                                // 存入 Redis Hash: okx:borrow:interest
-                                jedis.hset("okx:borrow:interest", symbol, interestRate.toPlainString());
-                                logger.debug("缓存借币利息率: {} -> {} (小时利率)", symbol, interestRate);
-                            } else {
-                                logger.warn("未查询到 {} 的借币利息率", symbol);
-                            }
+                            jedis.hset("okx:swap:instrument:cache", symbol, json);
+                            logger.debug("缓存交易对信息: {} -> minSz={}, ctVal={}",
+                                    symbol, instrumentInfo.minSz, instrumentInfo.ctVal);
                         }
                         
                     } catch (Exception e) {
                         logger.error("缓存币对 {} 信息失败: {}", symbolWithSuffix, e.getMessage());
                     }
                 }
-                
-                // 5. 设置缓存过期时间 (2倍刷新间隔,避免缓存失效)
-                int refreshIntervalSeconds = config.getInt("arbitrage.cache.refresh-interval-seconds", 300);
-                int expireSeconds = refreshIntervalSeconds * 2;
-                jedis.expire("okx:margin:support", expireSeconds);
-                jedis.expire("okx:instrument:cache", expireSeconds);
-                jedis.expire("okx:borrow:interest", expireSeconds);
-                
-                long elapsed = System.currentTimeMillis() - startTime;
-                logger.info("缓存刷新完成,耗时 {} ms", elapsed);
                 
             } catch (Exception e) {
                 logger.error("Redis 操作失败: {}", e.getMessage(), e);
@@ -502,8 +442,7 @@ public class FlinkTickerCollectorJob {
             topSymbols.add(symbol);
             
             logger.info("价差排名 {}: {} - 现货: {}, 合约: {}, 价差率: {}%", 
-                i + 1, symbol, info.spotPrice, info.swapPrice, 
-                info.spreadRate.multiply(new java.math.BigDecimal("100")));
+                i + 1, symbol, info.spotPrice, info.swapPrice, info.spreadRate);
         }
         
         return topSymbols;

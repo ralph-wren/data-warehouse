@@ -603,7 +603,46 @@ public class TradingDecisionProcessor
         
         logger.info("🎯 开仓: {} | 价差率: {}%", opp.symbol, opp.spreadRate);
         
-        // ⭐ 关键修复：在开仓前检查全局持仓数量
+        // ⭐ 第一步：检查策略支持（在检查持仓数量之前）
+        // 构造标准交易对格式（如 "BTC-USDT"）
+        String standardSymbol = opp.symbol + "-USDT";
+        
+        // 判断套利方向对应的策略
+        boolean isStrategyA = opp.arbitrageDirection.contains("做空现货");  // 策略A：现货卖出 + 合约买入（需要杠杆）
+        boolean isStrategyB = opp.arbitrageDirection.contains("做多现货");  // 策略B：现货买入 + 合约卖出（不需要杠杆）
+        
+        // 检查策略支持
+        if (isStrategyA && !marginCache.supportsStrategyA(standardSymbol)) {
+            logger.warn("⚠️ 币种 {} 不支持策略A（现货卖出+合约买入，需要杠杆借币），拒绝开仓", opp.symbol);
+            
+            // 写入拒绝日志
+            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+            String rejectLog = String.format("%s,%s,OPEN,REJECTED,N/A,N/A,N/A,N/A,REJECTED,不支持策略A（需要杠杆借币）",
+                timestamp, opp.symbol);
+            orderDetailWriter.write(rejectLog);
+            return;
+        }
+        
+        if (isStrategyB && !marginCache.supportsStrategyB(standardSymbol)) {
+            logger.warn("⚠️ 币种 {} 不支持策略B（现货买入+合约卖出），拒绝开仓", opp.symbol);
+            
+            // 写入拒绝日志
+            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+            String rejectLog = String.format("%s,%s,OPEN,REJECTED,N/A,N/A,N/A,N/A,REJECTED,不支持策略B",
+                timestamp, opp.symbol);
+            orderDetailWriter.write(rejectLog);
+            return;
+        }
+        
+        // 记录策略信息
+        if (isStrategyA) {
+            int leverage = marginCache.getLeverage(standardSymbol);
+            logger.info("✅ 策略A检查通过: {} | 杠杆倍数: {}x", opp.symbol, leverage);
+        } else if (isStrategyB) {
+            logger.info("✅ 策略B检查通过: {} | 不需要杠杆", opp.symbol);
+        }
+        
+        // ⭐ 第二步：检查全局持仓数量
         try {
             long currentPositionCount = redisManager.getCounter(REDIS_KEY_POSITION_COUNT);
             logger.info("📊 当前全局持仓数量: {} / {}", currentPositionCount, maxPositions);

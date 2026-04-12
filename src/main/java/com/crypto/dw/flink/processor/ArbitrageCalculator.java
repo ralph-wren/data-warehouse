@@ -70,13 +70,13 @@ public class ArbitrageCalculator
         }
         
         // 计算价差
-        BigDecimal spread = futures.price.subtract(spot.price);
+        BigDecimal spread = futures.price.subtract(spot.price).abs();
         
         // 计算价差率（相对于现货价格）
-        BigDecimal spreadRate = spread.divide(spot.price, 6, RoundingMode.HALF_UP);
+        BigDecimal spreadRate = spread.divide(spot.price.min(futures.price), 6, RoundingMode.HALF_UP);
         
         // 判断是否有套利机会（价差率绝对值超过阈值）
-        if (spreadRate.abs().compareTo(ARBITRAGE_THRESHOLD) > 0) {
+        if (spreadRate.compareTo(ARBITRAGE_THRESHOLD) > 0) {
             ArbitrageOpportunity opportunity = new ArbitrageOpportunity();
             opportunity.symbol = spot.symbol;
             opportunity.spotPrice = spot.price;
@@ -85,7 +85,7 @@ public class ArbitrageCalculator
             opportunity.spreadRate = spreadRate.multiply(new BigDecimal("100"));  // 转换为百分比
             
             // 判断套利方向
-            if (spread.compareTo(BigDecimal.ZERO) > 0) {
+            if (spot.price.compareTo(futures.price) < 0) {
                 // 合约价格 > 现货价格：做空合约，做多现货（策略 A）
                 opportunity.arbitrageDirection = "做多现货/做空合约";
             } else {

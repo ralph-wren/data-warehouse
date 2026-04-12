@@ -35,7 +35,7 @@
 | 字段 | 值 |
 |------|-----|
 | Program Jar | 上传 `target/realtime-crypto-datawarehouse-1.0.0.jar` |
-| Main Class | `com.crypto.dw.flink.FlinkODSJobDataStream` |
+| Main Class | `com.crypto.dw.jobs.FlinkODSJobDataStream` |
 | Program Args | 留空 |
 
 #### Flink 配置
@@ -61,10 +61,10 @@ APP_ENV=dev
 
 | 作业 | 主类 | 说明 |
 |------|------|------|
-| ODS (DataStream) | `com.crypto.dw.flink.FlinkODSJobDataStream` | Kafka → Doris ODS |
-| ODS (SQL) | `com.crypto.dw.flink.FlinkODSJobSQL` | Kafka → Doris ODS (SQL) |
-| DWD (SQL) | `com.crypto.dw.flink.FlinkDWDJobSQL` | ODS → DWD 数据清洗 |
-| DWS (1分钟) | `com.crypto.dw.flink.FlinkDWSJob1MinSQL` | DWD → DWS 聚合 |
+| ODS (DataStream) | `com.crypto.dw.jobs.FlinkODSJobDataStream` | Kafka → Doris ODS |
+| ODS (SQL) | `com.crypto.dw.jobs.FlinkODSJobSQL` | Kafka → Doris ODS (SQL) |
+| DWD (SQL) | `com.crypto.dw.jobs.FlinkDWDJobSQL` | ODS → DWD 数据清洗 |
+| DWS (1分钟) | `com.crypto.dw.jobs.FlinkDWSJob1MinSQL` | DWD → DWS 聚合 |
 
 ## 常见问题
 

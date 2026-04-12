@@ -625,71 +625,71 @@ public String createDorisSinkTable(String tableName, String dorisTable, String s
 package com.crypto.dw.flink;
 
 import com.crypto.dw.config.ConfigLoader;
-import com.crypto.dw.flink.factory.FlinkEnvironmentFactory;
-import com.crypto.dw.flink.factory.FlinkTableFactory;
+import com.crypto.dw.factory.FlinkEnvironmentFactory;
+import com.crypto.dw.factory.FlinkTableFactory;
 import com.crypto.dw.flink.schema.TableSchemas;
 import org.apache.flink.table.api.bridge.java.StreamTableEnvironment;
 
 /**
  * Flink DWD 作业 - 从 Doris ODS 读取数据写入 Doris DWD
- * 
+ *
  * 端到端一致性保证:
  * 1. Checkpoint: EXACTLY_ONCE 模式
  * 2. Doris Source: 分区读取,保证数据一致性
  * 3. Doris Sink: 两阶段提交,保证精确一次语义
  */
 public class FlinkDWDJobSQL {
-    
+
     public static void main(String[] args) throws Exception {
         // 1. 加载配置
         ConfigLoader config = ConfigLoader.getInstance();
-        
+
         // 2. 创建 Flink 环境 (启用 Checkpoint)
         FlinkEnvironmentFactory envFactory = new FlinkEnvironmentFactory(config);
         StreamTableEnvironment tableEnv = envFactory.createTableEnvironment("flink-dwd-job", 8082);
-        
+
         // 3. 创建 Doris Source 表 (从 ODS 读取)
         FlinkTableFactory tableFactory = new FlinkTableFactory(config);
         String odsSourceDDL = tableFactory.createDorisSourceTable(
-            "ods_source",
-            "ods_crypto_ticker_rt",
-            TableSchemas.DORIS_ODS_SOURCE_SCHEMA
+                "ods_source",
+                "ods_crypto_ticker_rt",
+                TableSchemas.DORIS_ODS_SOURCE_SCHEMA
         );
         tableEnv.executeSql(odsSourceDDL);
-        
+
         // 4. 创建 Doris Sink 表 (写入 DWD,启用两阶段提交)
         String dwdSinkDDL = tableFactory.createDorisSinkTable(
-            "dwd_sink",
-            "dwd_crypto_ticker_detail",
-            TableSchemas.DORIS_DWD_SINK_SCHEMA
+                "dwd_sink",
+                "dwd_crypto_ticker_detail",
+                TableSchemas.DORIS_DWD_SINK_SCHEMA
         );
         tableEnv.executeSql(dwdSinkDDL);
-        
+
         // 5. 执行 INSERT INTO (数据清洗和转换)
         String insertSQL = "INSERT INTO dwd_sink\n" +
-                           "SELECT \n" +
-                           "    inst_id,\n" +
-                           "    `timestamp`,\n" +
-                           "    CAST(FROM_UNIXTIME(`timestamp` / 1000, 'yyyy-MM-dd') AS DATE) AS trade_date,\n" +
-                           "    CAST(EXTRACT(HOUR FROM TO_TIMESTAMP(FROM_UNIXTIME(`timestamp` / 1000))) AS INT) AS trade_hour,\n" +
-                           "    last_price,\n" +
-                           "    bid_price,\n" +
-                           "    ask_price,\n" +
-                           "    ask_price - bid_price AS spread,\n" +
-                           "    CAST((ask_price - bid_price) / bid_price * 100 AS DECIMAL(10, 6)) AS spread_rate,\n" +
-                           "    volume_24h,\n" +
-                           "    high_24h,\n" +
-                           "    low_24h,\n" +
-                           "    open_24h,\n" +
-                           "    last_price - open_24h AS price_change_24h,\n" +
-                           "    CAST((last_price - open_24h) / open_24h * 100 AS DECIMAL(10, 6)) AS price_change_rate_24h,\n" +
-                           "    CAST((high_24h - low_24h) / open_24h * 100 AS DECIMAL(10, 6)) AS amplitude_24h,\n" +
-                           "    data_source,\n" +
-                           "    ingest_time,\n" +
-                           "    UNIX_TIMESTAMP() * 1000 AS process_time\n" +
-                           "FROM ods_source\n" +
-                           "WHERE last_price > 0 AND bid_price > 0 AND ask_price > 0";  // 数据质量过滤
-        
+                "SELECT \n" +
+                "    inst_id,\n" +
+                "    `timestamp`,\n" +
+                "    CAST(FROM_UNIXTIME(`timestamp` / 1000, 'yyyy-MM-dd') AS DATE) AS trade_date,\n" +
+                "    CAST(EXTRACT(HOUR FROM TO_TIMESTAMP(FROM_UNIXTIME(`timestamp` / 1000))) AS INT) AS trade_hour,\n" +
+                "    last_price,\n" +
+                "    bid_price,\n" +
+                "    ask_price,\n" +
+                "    ask_price - bid_price AS spread,\n" +
+                "    CAST((ask_price - bid_price) / bid_price * 100 AS DECIMAL(10, 6)) AS spread_rate,\n" +
+                "    volume_24h,\n" +
+                "    high_24h,\n" +
+                "    low_24h,\n" +
+                "    open_24h,\n" +
+                "    last_price - open_24h AS price_change_24h,\n" +
+                "    CAST((last_price - open_24h) / open_24h * 100 AS DECIMAL(10, 6)) AS price_change_rate_24h,\n" +
+                "    CAST((high_24h - low_24h) / open_24h * 100 AS DECIMAL(10, 6)) AS amplitude_24h,\n" +
+                "    data_source,\n" +
+                "    ingest_time,\n" +
+                "    UNIX_TIMESTAMP() * 1000 AS process_time\n" +
+                "FROM ods_source\n" +
+                "WHERE last_price > 0 AND bid_price > 0 AND ask_price > 0";  // 数据质量过滤
+
         tableEnv.executeSql(insertSQL);
     }
 }

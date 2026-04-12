@@ -1,9 +1,9 @@
-package com.crypto.dw.flink;
+package com.crypto.dw.jobs;
 
 import com.crypto.dw.config.ConfigLoader;
-import com.crypto.dw.flink.factory.DorisSinkFactory;
-import com.crypto.dw.flink.factory.FlinkEnvironmentFactory;
-import com.crypto.dw.flink.factory.KafkaSourceFactory;
+import com.crypto.dw.factory.DorisSinkFactory;
+import com.crypto.dw.factory.FlinkEnvironmentFactory;
+import com.crypto.dw.factory.KafkaSourceFactory;
 import com.crypto.dw.model.TickerData;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -13,7 +13,6 @@ import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.functions.AggregateFunction;
 import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
-import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.flink.streaming.api.datastream.DataStream;

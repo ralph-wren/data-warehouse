@@ -128,7 +128,7 @@ env.java.opts: -Dkafka.metrics.jmx.exclude=.*
 ```bash
 flink run \
   -Dkafka.metrics.jmx.exclude=.* \
-  -c com.crypto.dw.flink.FlinkADSArbitrageJob \
+  -c com.crypto.dw.jobs.FlinkADSArbitrageJob \
   target/realtime-crypto-datawarehouse-1.0.0.jar
 ```
 

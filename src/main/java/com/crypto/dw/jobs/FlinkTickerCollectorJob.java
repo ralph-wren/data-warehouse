@@ -1,7 +1,7 @@
-package com.crypto.dw.flink;
+package com.crypto.dw.jobs;
 
 import com.crypto.dw.config.ConfigLoader;
-import com.crypto.dw.flink.factory.FlinkEnvironmentFactory;
+import com.crypto.dw.factory.FlinkEnvironmentFactory;
 import com.crypto.dw.flink.source.OKXRestApiSource;
 import com.crypto.dw.flink.source.OKXWebSocketSourceFunction;
 import com.crypto.dw.redis.RedisConnectionManager;
@@ -9,6 +9,7 @@ import com.crypto.dw.trading.OKXTradingService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
+import org.apache.flink.configuration.Configuration;
 import org.apache.flink.connector.base.DeliveryGuarantee;
 import org.apache.flink.connector.kafka.sink.KafkaRecordSerializationSchema;
 import org.apache.flink.connector.kafka.sink.KafkaSink;
@@ -23,9 +24,6 @@ import org.slf4j.LoggerFactory;
 import redis.clients.jedis.Jedis;
 
 import java.util.*;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Flink 数据采集作业 (增强版 - 支持从 Redis 读取订阅列表)
@@ -281,21 +279,6 @@ public class FlinkTickerCollectorJob {
      * @return 交易对列表
      */
     private static List<String> getSymbolsWithSpreadCalculation(String[] args, ConfigLoader config) {
-        // 过滤掉 --env 和 --APP_ENV 参数
-        List<String> filteredArgs = new ArrayList<>();
-        for (int i = 0; i < args.length; i++) {
-            if ("--env".equals(args[i]) || "--APP_ENV".equals(args[i])) {
-                i++; // 跳过下一个参数（环境值）
-                continue;
-            }
-            filteredArgs.add(args[i]);
-        }
-
-        // 如果命令行参数提供了交易对，使用命令行参数
-        if (!filteredArgs.isEmpty()) {
-            logger.info("使用命令行参数指定的交易对: {}", filteredArgs);
-            return filteredArgs;
-        }
         
         // 尝试通过 REST API 计算价差,获取价差最大的前10个币对
         try {
@@ -417,7 +400,7 @@ public class FlinkTickerCollectorJob {
         OKXRestApiSource apiSource = new OKXRestApiSource(config, 0, topN);
         
         // 初始化 Source (调用 open 方法)
-        org.apache.flink.configuration.Configuration flinkConfig = new org.apache.flink.configuration.Configuration();
+        Configuration flinkConfig = new Configuration();
         apiSource.open(flinkConfig);
         
         // 获取现货价格

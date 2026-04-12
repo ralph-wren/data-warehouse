@@ -40,7 +40,7 @@ StreamPark 需要知道 Flink 的安装位置：
    - 开发模式: `Apache Flink`
    - 执行模式: `local`（本地测试）或 `remote`（远程集群）
 4. 上传 JAR 包或指定 JAR 路径
-5. 配置主类: 如 `com.crypto.dw.flink.FlinkODSJobDataStream`
+5. 配置主类: 如 `com.crypto.dw.jobs.FlinkODSJobDataStream`
 6. 配置程序参数和 Flink 配置
 
 #### 方式二：通过 Flink SQL 添加
@@ -139,7 +139,7 @@ table=ods_trades
 name: FlinkODSJob
 
 # 主类
-main-class: com.crypto.dw.flink.FlinkODSJobDataStream
+main-class: com.crypto.dw.jobs.FlinkODSJobDataStream
 
 # JAR 路径
 jar: /path/to/data-warehouse-1.0-SNAPSHOT.jar

@@ -72,7 +72,7 @@ config/application-prod.yml
 
 **预期输出（成功）**:
 ```
-INFO  com.crypto.dw.flink.FlinkODSJobDataStream - System Property APP_ENV: docker
+INFO  com.crypto.dw.jobs.FlinkODSJobDataStream - System Property APP_ENV: docker
 INFO  com.crypto.dw.config.ConfigLoader - Loading configuration for environment: docker
 INFO  com.crypto.dw.config.ConfigLoader - Successfully loaded config file from path: config/application-docker.yml
 INFO  com.crypto.dw.config.ConfigLoader - Configuration loaded successfully from: application-docker.yml

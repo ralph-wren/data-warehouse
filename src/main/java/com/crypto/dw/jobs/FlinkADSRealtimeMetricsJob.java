@@ -1,8 +1,8 @@
-package com.crypto.dw.flink;
+package com.crypto.dw.jobs;
 
 import com.crypto.dw.config.ConfigLoader;
-import com.crypto.dw.flink.factory.FlinkEnvironmentFactory;
-import com.crypto.dw.flink.factory.FlinkTableFactory;
+import com.crypto.dw.factory.FlinkEnvironmentFactory;
+import com.crypto.dw.factory.FlinkTableFactory;
 import com.crypto.dw.flink.schema.TableSchemas;
 import org.apache.flink.table.api.bridge.java.StreamTableEnvironment;
 import org.slf4j.Logger;

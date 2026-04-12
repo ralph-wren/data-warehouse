@@ -1,7 +1,7 @@
-package com.crypto.dw.flink;
+package com.crypto.dw.jobs;
 
 import com.crypto.dw.config.ConfigLoader;
-import com.crypto.dw.flink.factory.FlinkEnvironmentFactory;
+import com.crypto.dw.factory.FlinkEnvironmentFactory;
 import com.crypto.dw.flink.source.OKXKlineWebSocketSourceFunction;
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
 import org.apache.flink.connector.base.DeliveryGuarantee;

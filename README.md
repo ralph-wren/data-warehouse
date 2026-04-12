@@ -1430,9 +1430,9 @@ SET ("replication_num" = "2");
    mvn clean package -DskipTests
    
    # 提交 Flink 作业到集群
-   flink run -c com.crypto.dw.flink.FlinkODSJobDataStream target/crypto-dw-1.0-SNAPSHOT.jar
-   flink run -c com.crypto.dw.flink.FlinkDWDJobSQL target/crypto-dw-1.0-SNAPSHOT.jar
-   flink run -c com.crypto.dw.flink.FlinkDWSJob1MinSQL target/crypto-dw-1.0-SNAPSHOT.jar
+   flink run -c com.crypto.dw.jobs.FlinkODSJobDataStream target/crypto-dw-1.0-SNAPSHOT.jar
+   flink run -c com.crypto.dw.jobs.FlinkDWDJobSQL target/crypto-dw-1.0-SNAPSHOT.jar
+   flink run -c com.crypto.dw.jobs.FlinkDWSJob1MinSQL target/crypto-dw-1.0-SNAPSHOT.jar
    ```
 
 6. **配置监控告警**

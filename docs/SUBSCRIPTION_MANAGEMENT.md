@@ -93,7 +93,7 @@ okx:
 bash run-flink-collector.sh BTC-USDT ETH-USDT SOL-USDT
 
 # 或使用 Maven
-mvn exec:java -Dexec.mainClass="com.crypto.dw.flink.FlinkTickerCollectorJob" \
+mvn exec:java -Dexec.mainClass="com.crypto.dw.jobs.FlinkTickerCollectorJob" \
   -Dexec.args="BTC-USDT ETH-USDT SOL-USDT"
 ```
 

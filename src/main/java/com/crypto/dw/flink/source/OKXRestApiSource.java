@@ -3,6 +3,7 @@ package com.crypto.dw.flink.source;
 import com.crypto.dw.config.ConfigLoader;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.functions.source.RichSourceFunction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -53,7 +54,6 @@ public class OKXRestApiSource extends RichSourceFunction<OKXRestApiSource.PriceS
     
     private volatile boolean running = true;
     private transient ObjectMapper objectMapper;
-    private transient Proxy proxy;
 
     /**
      * 构造函数
@@ -71,60 +71,14 @@ public class OKXRestApiSource extends RichSourceFunction<OKXRestApiSource.PriceS
     }
 
     @Override
-    public void open(org.apache.flink.configuration.Configuration parameters) throws Exception {
+    public void open(Configuration parameters) throws Exception {
         super.open(parameters);
         objectMapper = new ObjectMapper();
-        
-        // 配置代理(如果启用)
-        boolean proxyEnabled = config.getBoolean("okx.proxy.enabled", false);
-        if (proxyEnabled) {
-            String proxyHost = config.getString("okx.proxy.host", "localhost");
-            int proxyPort = config.getInt("okx.proxy.port", 10809);
-            proxy = new Proxy(Proxy.Type.HTTP, new InetSocketAddress(proxyHost, proxyPort));
-            logger.info("代理已启用: {}:{}", proxyHost, proxyPort);
-        } else {
-            proxy = Proxy.NO_PROXY;
-            logger.info("代理未启用");
-        }
     }
 
     @Override
     public void run(SourceContext<PriceSpreadInfo> ctx) throws Exception {
-        logger.info("OKX REST API Source 已启动, 间隔: {}ms, 取前 {} 个币种", intervalMs, topN);
-        
-        while (running) {
-            try {
-                // 1. 获取所有现货价格
-                Map<String, BigDecimal> spotPrices = fetchSpotPrices();
-                logger.info("获取到 {} 个现货价格", spotPrices.size());
-                
-                // 2. 获取所有合约价格
-                Map<String, BigDecimal> swapPrices = fetchSwapPrices();
-                logger.info("获取到 {} 个合约价格", swapPrices.size());
-                
-                // 3. 计算价差并排序
-                List<PriceSpreadInfo> spreadList = calculateSpreads(spotPrices, swapPrices);
-                logger.info("计算出 {} 个币种的价差", spreadList.size());
-                
-                // 4. 取价差最大的前 N 个
-                List<PriceSpreadInfo> topSpreads = spreadList.subList(0, Math.min(topN, spreadList.size()));
-                
-                // 5. 输出结果
-                for (PriceSpreadInfo info : topSpreads) {
-                    ctx.collect(info);
-                    logger.info("价差排名: {} - 现货: {}, 合约: {}, 价差率: {}%", 
-                        info.symbol, info.spotPrice, info.swapPrice, info.spreadRate.multiply(new BigDecimal("100")));
-                }
-                
-                // 6. 等待下一次获取
-                Thread.sleep(intervalMs);
-                
-            } catch (Exception e) {
-                logger.error("获取价格数据失败: {}", e.getMessage(), e);
-                // 失败后等待一段时间再重试
-                Thread.sleep(5000);
-            }
-        }
+
     }
 
     @Override
@@ -320,7 +274,7 @@ public class OKXRestApiSource extends RichSourceFunction<OKXRestApiSource.PriceS
      */
     private String httpGet(String urlString) throws Exception {
         URL url = new URL(urlString);
-        HttpURLConnection conn = (HttpURLConnection) url.openConnection(proxy);
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         
         conn.setRequestMethod("GET");
         conn.setConnectTimeout(10000);

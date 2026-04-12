@@ -1,6 +1,6 @@
 # ADS Arbitrage Job 配置
 JOB_NAME: ads-arbitrage
-JOB_CLASS: com.crypto.dw.flink.FlinkADSArbitrageJob
+JOB_CLASS: com.crypto.dw.jobs.FlinkADSArbitrageJob
 
 # 资源配置（套利任务需要更多资源）
 JM_MEMORY: 1024m

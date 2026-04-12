@@ -100,7 +100,7 @@ flink cancel <job-id>
 
 ```bash
 flink run -s file:///tmp/flink-savepoints/savepoint-xxx \
-  -c com.crypto.dw.flink.FlinkODSJobDataStream \
+  -c com.crypto.dw.jobs.FlinkODSJobDataStream \
   target/realtime-crypto-datawarehouse-1.0.0.jar
 ```
 
@@ -273,7 +273,7 @@ String dateStr = new SimpleDateFormat("yyyyMMdd").format(new Date());
 
 // 启动命令
 flink run -s file:///path/to/savepoint \
-  -c com.crypto.dw.flink.FlinkODSJobDataStream \
+  -c com.crypto.dw.jobs.FlinkODSJobDataStream \
   target/realtime-crypto-datawarehouse-1.0.0.jar
 ```
 

@@ -132,7 +132,7 @@ mvn clean package -DskipTests
 
 ### 4. 在 StreamPark 中重新提交作业 ✅
 
-- Main Class: `com.crypto.dw.flink.FlinkODSJobDataStream`
+- Main Class: `com.crypto.dw.jobs.FlinkODSJobDataStream`
 - **Dynamic Properties**: `APP_ENV=docker`  ← 关键配置
 - 上传新编译的 JAR 包
 

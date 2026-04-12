@@ -5,7 +5,7 @@
 在运行 `FlinkDataCollectorJob` 时，订阅 OKX WebSocket Ticker 频道时出现以下错误：
 
 ```
-ERROR com.crypto.dw.flink.FlinkTickerCollectorJob - Subscription error: 
+ERROR com.crypto.dw.jobs.FlinkTickerCollectorJob - Subscription error: 
 {"event":"error","msg":"Wrong URL or channel:tickers,instId:BTC-USDT doesn't exist. 
 Please use the correct URL, channel and parameters referring to API document.","code":"60018","connId":"d5e6891c"}
 ```
@@ -150,7 +150,7 @@ bash run-flink-collector.sh
 INFO  com.crypto.dw.flink.source.OKXWebSocketSourceFunction - WebSocket connection opened
 INFO  com.crypto.dw.flink.source.OKXWebSocketSourceFunction - Subscribed to SPOT ticker: BTC-USDT
 INFO  com.crypto.dw.flink.source.OKXWebSocketSourceFunction - Subscribed to SWAP ticker: BTC-USDT-SWAP
-INFO  com.crypto.dw.flink.FlinkTickerCollectorJob - Subscription confirmed: {"event":"subscribe",...}
+INFO  com.crypto.dw.jobs.FlinkTickerCollectorJob - Subscription confirmed: {"event":"subscribe",...}
 ```
 
 ### 测试 K线数据采集
@@ -165,7 +165,7 @@ bash run-flink-kline-collector.sh
 ```
 INFO  com.crypto.dw.flink.source.OKXKlineWebSocketSourceFunction - WebSocket 连接已建立
 INFO  com.crypto.dw.flink.source.OKXKlineWebSocketSourceFunction - 订阅K线数据，交易对: BTC-USDT, 间隔: 4H
-INFO  com.crypto.dw.flink.FlinkKlineCollectorJob - 订阅确认: {"event":"subscribe",...}
+INFO  com.crypto.dw.jobs.FlinkKlineCollectorJob - 订阅确认: {"event":"subscribe",...}
 ```
 
 ## 配置说明

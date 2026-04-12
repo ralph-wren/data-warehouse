@@ -1,9 +1,9 @@
-package com.crypto.dw.flink;
+package com.crypto.dw.jobs;
 
 import com.crypto.dw.config.ConfigLoader;
-import com.crypto.dw.flink.factory.DorisSinkFactory;
-import com.crypto.dw.flink.factory.FlinkEnvironmentFactory;
-import com.crypto.dw.flink.factory.KafkaSourceFactory;
+import com.crypto.dw.factory.DorisSinkFactory;
+import com.crypto.dw.factory.FlinkEnvironmentFactory;
+import com.crypto.dw.factory.KafkaSourceFactory;
 import com.crypto.dw.flink.watermark.WatermarkStrategyFactory;
 import com.crypto.dw.model.TickerData;
 import com.fasterxml.jackson.databind.node.ObjectNode;

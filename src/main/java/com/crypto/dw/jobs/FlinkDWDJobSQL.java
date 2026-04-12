@@ -1,9 +1,9 @@
-package com.crypto.dw.flink;
+package com.crypto.dw.jobs;
 
 import com.crypto.dw.config.ConfigLoader;
 import com.crypto.dw.exception.FlinkJobExceptionHandler;
-import com.crypto.dw.flink.factory.FlinkEnvironmentFactory;
-import com.crypto.dw.flink.factory.FlinkTableFactory;
+import com.crypto.dw.factory.FlinkEnvironmentFactory;
+import com.crypto.dw.factory.FlinkTableFactory;
 import com.crypto.dw.flink.schema.TableSchemas;
 import com.crypto.dw.utils.SqlFileLoader;
 import lombok.extern.slf4j.Slf4j;

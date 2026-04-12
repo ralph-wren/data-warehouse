@@ -1,4 +1,4 @@
-package com.crypto.dw.flink.factory;
+package com.crypto.dw.factory;
 
 import com.crypto.dw.config.ConfigLoader;
 import org.apache.doris.flink.cfg.DorisExecutionOptions;

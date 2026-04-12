@@ -1,6 +1,6 @@
 # Ticker Collector Job 配置
 JOB_NAME: ticker-collector
-JOB_CLASS: com.crypto.dw.flink.FlinkTickerCollectorJob
+JOB_CLASS: com.crypto.dw.jobs.FlinkTickerCollectorJob
 
 # 资源配置
 JM_MEMORY: 1600m

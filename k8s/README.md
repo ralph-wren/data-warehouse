@@ -115,7 +115,7 @@ kubectl logs -n flink -l app=flink-ticker-collector,component=jobmanager
 ```yaml
 # 作业基本信息
 JOB_NAME: ticker-collector
-JOB_CLASS: com.crypto.dw.flink.FlinkTickerCollectorJob
+JOB_CLASS: com.crypto.dw.jobs.FlinkTickerCollectorJob
 
 # JobManager 资源配置
 JM_MEMORY: 1600m

@@ -106,6 +106,53 @@ public class PositionState implements Serializable {
      */
     private BigDecimal openFeeUsdt;
     
+    // ⭐ 新增: 实际成交价格和成本字段（用于精确计算利润）
+    
+    /**
+     * 现货实际成交价格（从订单详情获取）
+     */
+    private BigDecimal actualSpotPrice;
+    
+    /**
+     * 合约实际成交价格（从订单详情获取）
+     */
+    private BigDecimal actualSwapPrice;
+    
+    /**
+     * 现货成本（USDT）= 实际成交价 × 成交数量
+     */
+    private BigDecimal spotCost;
+    
+    /**
+     * 合约成本（USDT）= 实际成交价 × 成交数量
+     */
+    private BigDecimal futuresCost;
+    
+    /**
+     * 总成本（USDT）= 现货成本 + 合约成本
+     */
+    private BigDecimal totalCost;
+    
+    /**
+     * 现货手续费（USDT）
+     */
+    private BigDecimal spotFee;
+    
+    /**
+     * 合约手续费（USDT）
+     */
+    private BigDecimal futuresFee;
+    
+    /**
+     * 总手续费（USDT）= 现货手续费 + 合约手续费
+     */
+    private BigDecimal totalFee;
+    
+    /**
+     * 总费用（USDT）= 总成本 + 总手续费
+     */
+    private BigDecimal totalExpense;
+    
     // Getters and Setters
     
     public String getSymbol() {
@@ -242,6 +289,80 @@ public class PositionState implements Serializable {
     
     public void setOpenFeeUsdt(BigDecimal openFeeUsdt) {
         this.openFeeUsdt = openFeeUsdt;
+    }
+    
+    // ⭐ 新增字段的 Getters 和 Setters
+    
+    public BigDecimal getActualSpotPrice() {
+        return actualSpotPrice;
+    }
+    
+    public void setActualSpotPrice(BigDecimal actualSpotPrice) {
+        this.actualSpotPrice = actualSpotPrice;
+    }
+    
+    public BigDecimal getActualSwapPrice() {
+        return actualSwapPrice;
+    }
+    
+    public void setActualSwapPrice(BigDecimal actualSwapPrice) {
+        this.actualSwapPrice = actualSwapPrice;
+    }
+    
+    public BigDecimal getSpotCost() {
+        return spotCost;
+    }
+    
+    public void setSpotCost(BigDecimal spotCost) {
+        this.spotCost = spotCost;
+    }
+    
+    public BigDecimal getFuturesCost() {
+        return futuresCost;
+    }
+    
+    public void setFuturesCost(BigDecimal futuresCost) {
+        this.futuresCost = futuresCost;
+    }
+    
+    public BigDecimal getTotalCost() {
+        return totalCost;
+    }
+    
+    public void setTotalCost(BigDecimal totalCost) {
+        this.totalCost = totalCost;
+    }
+    
+    public BigDecimal getSpotFee() {
+        return spotFee;
+    }
+    
+    public void setSpotFee(BigDecimal spotFee) {
+        this.spotFee = spotFee;
+    }
+    
+    public BigDecimal getFuturesFee() {
+        return futuresFee;
+    }
+    
+    public void setFuturesFee(BigDecimal futuresFee) {
+        this.futuresFee = futuresFee;
+    }
+    
+    public BigDecimal getTotalFee() {
+        return totalFee;
+    }
+    
+    public void setTotalFee(BigDecimal totalFee) {
+        this.totalFee = totalFee;
+    }
+    
+    public BigDecimal getTotalExpense() {
+        return totalExpense;
+    }
+    
+    public void setTotalExpense(BigDecimal totalExpense) {
+        this.totalExpense = totalExpense;
     }
     
     @Override

@@ -1,6 +1,6 @@
 package com.crypto.dw.flink.processor;
 
-import com.crypto.dw.flink.model.OrderUpdate;
+import com.crypto.dw.model.OrderUpdate;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.flink.api.common.functions.RichMapFunction;

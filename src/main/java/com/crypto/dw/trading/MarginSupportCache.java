@@ -60,7 +60,7 @@ public class MarginSupportCache {
      */
     public void loadAll() {
         try {
-            Map<String, String> data = redisManager.hgetAll("okx:margin:support");
+            Map<String, String> data = redisManager.hgetAll("okx:spot:margin:support");
             
             if (data != null && !data.isEmpty()) {
                 cache.clear();

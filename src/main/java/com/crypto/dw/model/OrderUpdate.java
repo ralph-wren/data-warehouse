@@ -1,15 +1,11 @@
 package com.crypto.dw.model;
 
-import java.io.Serializable;
 import java.math.BigDecimal;
 
 /**
- * 订单更新
+ * 订单更新数据模型
  */
-public class OrderUpdate implements Serializable {
-    
-    private static final long serialVersionUID = 1L;
-    
+public class OrderUpdate {
     public String orderId;          // 订单ID
     public String symbol;           // 交易对
     public String instType;         // 产品类型(SPOT/SWAP)
@@ -17,8 +13,7 @@ public class OrderUpdate implements Serializable {
     public String state;            // 订单状态(filled/canceled)
     public BigDecimal fillPrice;    // 成交价格
     public BigDecimal fillSize;     // 成交数量
+    public BigDecimal fee;          // 手续费金额
+    public String feeCcy;           // 手续费币种
     public long timestamp;          // 时间戳
-    
-    public OrderUpdate() {
-    }
 }

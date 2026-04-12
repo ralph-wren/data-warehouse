@@ -361,7 +361,7 @@ public class OKXTradingService implements Serializable {
             // 从 Redis 查询借币利息率
             if (marginCache != null && marginCache.getRedisManager() != null) {
                 try (redis.clients.jedis.Jedis jedis = marginCache.getRedisManager().getConnection()) {
-                    String interestRateStr = jedis.hget("okx:borrow:interest", symbol);
+                    String interestRateStr = jedis.hget("okx:spot:borrow:interest", symbol);
                     if (interestRateStr != null) {
                         lastBorrowInterestRate = new BigDecimal(interestRateStr);
                         logger.debug("从 Redis 查询借币利息率: {} -> {} (小时利率)", symbol, lastBorrowInterestRate);
@@ -1645,6 +1645,7 @@ public class OKXTradingService implements Serializable {
                 if (dataArray.isArray() && dataArray.size() > 0) {
                     com.fasterxml.jackson.databind.JsonNode orderDetail = dataArray.get(0);
                     logger.info("✅ 查询订单详情成功: orderId={}, instId={}, instType={}", orderId, instId, instType);
+                    logger.info("接口返回原始数据： "+responseBody);
                     return orderDetail;
                 } else {
                     logger.warn("⚠️ 订单详情为空: orderId={}, instId={}, instType={}", orderId, instId, instType);

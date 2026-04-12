@@ -4,9 +4,9 @@ import com.crypto.dw.config.ConfigLoader;
 import com.crypto.dw.flink.factory.DorisSinkFactory;
 import com.crypto.dw.flink.factory.FlinkEnvironmentFactory;
 import com.crypto.dw.flink.factory.KafkaSourceFactory;
-import com.crypto.dw.flink.model.ArbitrageOpportunity;
-import com.crypto.dw.flink.model.FuturesPrice;
-import com.crypto.dw.flink.model.SpotPrice;
+import com.crypto.dw.model.ArbitrageOpportunity;
+import com.crypto.dw.model.FuturesPrice;
+import com.crypto.dw.model.SpotPrice;
 import com.crypto.dw.flink.processor.ArbitrageCalculator;
 import com.crypto.dw.processor.TradingDecisionProcessor;
 import com.crypto.dw.model.TickerData;
@@ -19,6 +19,7 @@ import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.streaming.api.windowing.assigners.TumblingEventTimeWindows;
 import org.apache.flink.streaming.api.windowing.time.Time;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -122,7 +123,7 @@ public class FlinkADSArbitrageJob {
         .name("Parse Spot Price")
         // ⭐ 按秒聚合,保留每秒最新的一条记录,减少join数据量
         .keyBy(spot -> spot.symbol)
-        .window(org.apache.flink.streaming.api.windowing.assigners.TumblingEventTimeWindows.of(Time.seconds(1)))
+        .window(TumblingEventTimeWindows.of(Time.seconds(1)))
         .reduce((spot1, spot2) -> spot2.timestamp > spot1.timestamp ? spot2 : spot1)
         .name("Aggregate Spot By Second");
         
@@ -184,7 +185,7 @@ public class FlinkADSArbitrageJob {
             .keyBy(spot -> spot.symbol)
             .intervalJoin(futuresStream.keyBy(futures -> futures.symbol))
             .between(Time.seconds(-2), Time.seconds(2))
-            .process(new ArbitrageCalculator())
+            .process(new ArbitrageCalculator(config))  // 传入配置,从配置文件读取套利阈值
             .name("Calculate Arbitrage");
         
         logger.info("✓ Interval Join 配置成功（时间窗口: ±2 秒）");

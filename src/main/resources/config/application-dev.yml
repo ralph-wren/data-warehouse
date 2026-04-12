@@ -21,14 +21,7 @@ okx:
     key: ${OKX_API_KEY}
     secret: ${OKX_SECRET_KEY}
     passphrase: ${OKX_PASSPHRASE}
-  
-  # 代理配置
-  # 说明：国内访问 OKX WebSocket 可能需要代理
-  # 如果连接失败出现 SSL 握手错误，请启用代理
-  proxy:
-    enabled: false  # 是否启用代理
-    host: localhost  # 代理服务器地址
-    port: 10809  # 代理服务器端口
+
   
   # 订阅的交易对（逗号分隔）
   # 多个交易对对应多个 Kafka 分区，数据会均匀分布

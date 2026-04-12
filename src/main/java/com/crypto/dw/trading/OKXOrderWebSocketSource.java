@@ -12,7 +12,6 @@ import org.slf4j.LoggerFactory;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.net.InetSocketAddress;
-import java.net.Proxy;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -48,9 +47,7 @@ public class OKXOrderWebSocketSource extends RichSourceFunction<String> {
     private final String secretKey;
     private final String passphrase;
     private final boolean isSimulated;
-    private final boolean proxyEnabled;
-    private final String proxyHost;
-    private final int proxyPort;
+
     
     private transient OKXOrderWebSocketClient wsClient;
     private final AtomicBoolean running = new AtomicBoolean(true);
@@ -62,9 +59,6 @@ public class OKXOrderWebSocketSource extends RichSourceFunction<String> {
         this.secretKey = config.getString("okx.api.secret", "");
         this.passphrase = config.getString("okx.api.passphrase", "");
         this.isSimulated = config.getBoolean("okx.api.simulated", false);
-        this.proxyEnabled = config.getBoolean("okx.proxy.enabled", false);
-        this.proxyHost = config.getString("okx.proxy.host", "localhost");
-        this.proxyPort = config.getInt("okx.proxy.port", 10809);
     }
     
     @Override
@@ -73,7 +67,6 @@ public class OKXOrderWebSocketSource extends RichSourceFunction<String> {
         logger.info("========================================");
         logger.info("OKX Order WebSocket Source 初始化");
         logger.info("模式: {}", isSimulated ? "模拟交易" : "实盘交易");
-        logger.info("代理: {}", proxyEnabled ? (proxyHost + ":" + proxyPort) : "未启用");
         logger.info("========================================");
         
         // 创建心跳调度器
@@ -164,30 +157,6 @@ public class OKXOrderWebSocketSource extends RichSourceFunction<String> {
         // 私有频道 URL
         String wsUrl = config.getString("okx.websocket.private-url", "wss://ws.okx.com:8443/ws/v5/private");
         wsClient = new OKXOrderWebSocketClient(wsUrl, ctx);
-        
-        // 如果启用了代理，设置代理
-        if (proxyEnabled) {
-            logger.info("使用代理连接: {}:{}", proxyHost, proxyPort);
-            
-            // 验证代理配置
-            if (proxyHost == null || proxyHost.isEmpty()) {
-                throw new IllegalArgumentException("代理主机地址为空");
-            }
-            if (proxyPort <= 0 || proxyPort > 65535) {
-                throw new IllegalArgumentException("代理端口无效: " + proxyPort);
-            }
-            
-            try {
-                Proxy proxy = new Proxy(Proxy.Type.SOCKS, new InetSocketAddress(proxyHost, proxyPort));
-                wsClient.setProxy(proxy);
-                logger.debug("代理设置成功: SOCKS {}:{}", proxyHost, proxyPort);
-            } catch (Exception e) {
-                logger.error("设置代理失败: {}", e.getMessage());
-                throw e;
-            }
-        } else {
-            logger.info("直连模式(未使用代理)");
-        }
         
         logger.info("正在连接到: {}", wsUrl);
         wsClient.connectBlocking();

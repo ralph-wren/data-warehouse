@@ -165,22 +165,6 @@ public class OKXTradingService implements Serializable {
                 .readTimeout(10, TimeUnit.SECONDS)
                 .writeTimeout(10, TimeUnit.SECONDS);
             
-            // 配置代理（如果启用）
-            ConfigLoader config = ConfigLoader.getInstance();
-            boolean proxyEnabled = config.getBoolean("okx.proxy.enabled", false);
-            if (proxyEnabled) {
-                String proxyHost = config.getString("okx.proxy.host", "localhost");
-                int proxyPort = config.getInt("okx.proxy.port", 10809);
-                
-                java.net.Proxy proxy = new java.net.Proxy(
-                    java.net.Proxy.Type.HTTP,
-                    new java.net.InetSocketAddress(proxyHost, proxyPort)
-                );
-                builder.proxy(proxy);
-                
-                logger.info("✓ HTTP 客户端代理已启用: {}:{}", proxyHost, proxyPort);
-            }
-            
             httpClient = builder.build();
         }
     }

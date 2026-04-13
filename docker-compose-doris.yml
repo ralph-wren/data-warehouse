@@ -6,6 +6,7 @@ version: '3.8'
 services:
   doris-fe:
     image: apache/doris:fe-3.0.7-rc01-1204
+    platform: linux/amd64
     container_name: doris-fe
     hostname: doris-fe
     ports:
@@ -33,6 +34,7 @@ services:
 
   doris-be:
     image: apache/doris:be-3.0.7-rc01-1204
+    platform: linux/amd64
     container_name: doris-be
     hostname: doris-be
     ports:

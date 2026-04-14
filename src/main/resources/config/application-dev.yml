@@ -150,9 +150,9 @@ flink:
   
   # 状态后端配置
   state:
-    backend: rocksdb  # 状态后端类型：rocksdb (生产推荐) / hashmap (开发测试)
-    checkpoint-dir: file:///c/Users/ralph/IdeaProject/data-warehouse/rocksdb-dir/checkpoints  # Checkpoint 存储目录
-    savepoint-dir: file:///c/Users/ralph/IdeaProject/data-warehouse/rocksdb-dir/savepoints  # Savepoint 存储目录
+    backend: hashmap  # 状态后端类型：rocksdb (生产推荐) / hashmap (开发测试)
+    checkpoint-dir: file:///Users/ralph/IdeaProject/data-warehouse/rocksdb-dir/checkpoints  # Checkpoint 存储目录
+    savepoint-dir: file:///Users/ralph/IdeaProject/data-warehouse/rocksdb-dir/savepoints  # Savepoint 存储目录
     incremental: true  # RocksDB 增量 Checkpoint，减少状态快照体积
     local-recovery: false  # 禁用本地恢复，避免 Windows 路径过长问题
     

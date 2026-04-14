@@ -9,11 +9,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.BufferedReader;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.net.HttpURLConnection;
-import java.net.InetSocketAddress;
-import java.net.Proxy;
 import java.net.URL;
 import java.util.*;
 
@@ -42,15 +42,30 @@ import java.util.*;
 public class OKXRestApiSource extends RichSourceFunction<OKXRestApiSource.PriceSpreadInfo> {
 
     private static final Logger logger = LoggerFactory.getLogger(OKXRestApiSource.class);
-    
-    // OKX REST API 地址
-    private static final String SPOT_TICKER_API = "https://www.okx.com/api/v5/market/tickers?instType=SPOT";
-    private static final String SWAP_TICKER_API = "https://www.okx.com/api/v5/market/tickers?instType=SWAP";
-    
+
+    /**
+     * 默认 REST 根域名。部分网络环境下 www.okx.com 会被 WAF 拦截返回 403，可通过配置 okx.rest.base-url 改为官方文档中的备用域名。
+     */
+    private static final String DEFAULT_REST_BASE = "https://www.okx.com";
+
+    /**
+     * 浏览器风格 User-Agent：Java HttpURLConnection 默认 UA 常含 "Java/xx"，易被 CDN/WAF 直接 403。
+     * 可通过 okx.rest.user-agent 覆盖。
+     */
+    private static final String DEFAULT_BROWSER_USER_AGENT =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
+    private static final String SPOT_TICKER_PATH = "/api/v5/market/tickers?instType=SPOT";
+    private static final String SWAP_TICKER_PATH = "/api/v5/market/tickers?instType=SWAP";
+
     private final ConfigLoader config;
     private final long intervalMs;  // 获取价格的间隔时间(毫秒)
     private final int topN;  // 取价差最大的前 N 个
     private final BigDecimal minVolume24h;  // 最小24小时成交额(USDT),默认30万
+    /** REST 根地址，无尾部斜杠 */
+    private final String restBaseUrl;
+    /** 请求头 User-Agent */
+    private final String restUserAgent;
     
     private volatile boolean running = true;
     private transient ObjectMapper objectMapper;
@@ -68,6 +83,15 @@ public class OKXRestApiSource extends RichSourceFunction<OKXRestApiSource.PriceS
         this.topN = topN;
         // 读取最小24小时成交额配置,默认30万 USDT
         this.minVolume24h = new BigDecimal(config.getString("ticker.filter.min-volume-24h", "300000"));
+        String base = config.getString("okx.rest.base-url", DEFAULT_REST_BASE).trim();
+        while (base.endsWith("/")) {
+            base = base.substring(0, base.length() - 1);
+        }
+        this.restBaseUrl = base.isEmpty() ? DEFAULT_REST_BASE : base;
+        String ua = config.getString("okx.rest.user-agent", "").trim();
+        this.restUserAgent = ua.isEmpty() ? DEFAULT_BROWSER_USER_AGENT : ua;
+        logger.info("OKX REST 请求: baseUrl={}, userAgent={}",
+                restBaseUrl, ua.isEmpty() ? "(默认浏览器风格,避免 Java 默认 UA 触发 403)" : "(来自 okx.rest.user-agent)");
     }
 
     @Override
@@ -95,7 +119,7 @@ public class OKXRestApiSource extends RichSourceFunction<OKXRestApiSource.PriceS
     public Map<String, BigDecimal> fetchSpotPrices() throws Exception {
         Map<String, BigDecimal> prices = new HashMap<>();
         
-        String response = httpGet(SPOT_TICKER_API);
+        String response = httpGet(restBaseUrl + SPOT_TICKER_PATH);
         JsonNode rootNode = objectMapper.readTree(response);
         
         // 检查响应状态
@@ -160,7 +184,7 @@ public class OKXRestApiSource extends RichSourceFunction<OKXRestApiSource.PriceS
     public Map<String, BigDecimal> fetchSwapPrices() throws Exception {
         Map<String, BigDecimal> prices = new HashMap<>();
         
-        String response = httpGet(SWAP_TICKER_API);
+        String response = httpGet(restBaseUrl + SWAP_TICKER_PATH);
         JsonNode rootNode = objectMapper.readTree(response);
         
         // 检查响应状态
@@ -275,27 +299,42 @@ public class OKXRestApiSource extends RichSourceFunction<OKXRestApiSource.PriceS
     private String httpGet(String urlString) throws Exception {
         URL url = new URL(urlString);
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-        
+
         conn.setRequestMethod("GET");
         conn.setConnectTimeout(10000);
         conn.setReadTimeout(10000);
-        conn.setRequestProperty("Content-Type", "application/json");
-        
+        // 公开行情接口无需 Content-Type；Accept 标明期望 JSON
+        conn.setRequestProperty("Accept", "application/json");
+        conn.setRequestProperty("User-Agent", restUserAgent);
+
         int responseCode = conn.getResponseCode();
-        if (responseCode != 200) {
-            throw new RuntimeException("HTTP 请求失败, 状态码: " + responseCode);
-        }
-        
-        BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream()));
-        StringBuilder response = new StringBuilder();
-        String line;
-        while ((line = reader.readLine()) != null) {
-            response.append(line);
-        }
-        reader.close();
+        String body = readStreamFully(
+                responseCode >= 200 && responseCode < 300 ? conn.getInputStream() : conn.getErrorStream());
         conn.disconnect();
-        
-        return response.toString();
+
+        if (responseCode != 200) {
+            String snippet = body == null ? "" : body.length() > 800 ? body.substring(0, 800) + "..." : body;
+            logger.warn("OKX REST 非 200: url={}, code={}, bodySnippet={}", urlString, responseCode, snippet);
+            throw new RuntimeException("HTTP 请求失败, 状态码: " + responseCode
+                    + (snippet.isEmpty() ? "" : ", 响应片段: " + snippet));
+        }
+
+        return body != null ? body : "";
+    }
+
+    /** 读取 HTTP 响应体（成功或错误流），便于 403 时从 HTML/JSON 片段判断是 WAF 还是业务错误 */
+    private static String readStreamFully(InputStream stream) throws Exception {
+        if (stream == null) {
+            return null;
+        }
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))) {
+            StringBuilder response = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                response.append(line);
+            }
+            return response.toString();
+        }
     }
 
     /**

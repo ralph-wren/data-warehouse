@@ -22,7 +22,11 @@ okx:
     secret: ${OKX_SECRET_KEY}
     passphrase: ${OKX_PASSPHRASE}
 
-  
+  # 公开行情 REST（价差计算、tickers）；若仍 403 见 docs 说明或改 base-url
+  rest:
+    base-url: https://www.okx.com
+    # user-agent: ""  # 可选；留空则使用内置浏览器风格 UA，降低 WAF 拦截概率
+
   # 订阅的交易对（逗号分隔）
   # 多个交易对对应多个 Kafka 分区，数据会均匀分布
   # 注意：只订阅 OKX 上存在的交易对，避免订阅错误

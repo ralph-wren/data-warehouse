@@ -20,7 +20,11 @@ okx:
     key: ${OKX_API_KEY}
     secret: ${OKX_SECRET_KEY}
     passphrase: ${OKX_PASSPHRASE}
-  
+
+  # 公开行情 REST；容器/机房出口 IP 偶发被 WAF 403 时可调整 base-url 或 user-agent
+  rest:
+    base-url: https://www.okx.com
+
   # 订阅的交易对（逗号分隔）
   # 多个交易对对应多个 Kafka 分区，数据会均匀分布
   # 注意：只订阅 OKX 上存在的交易对，避免订阅错误

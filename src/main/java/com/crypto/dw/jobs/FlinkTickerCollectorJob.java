@@ -279,24 +279,89 @@ public class FlinkTickerCollectorJob {
      * @return 交易对列表
      */
     private static List<String> getSymbolsWithSpreadCalculation(String[] args, ConfigLoader config) {
-        
-        // 尝试通过 REST API 计算价差,获取价差最大的前10个币对
+        // 1) 命令行显式传入的币对优先（与脚本说明一致，跳过 --env / --APP_ENV 及其取值）
+        List<String> cliSymbols = parseTickerSymbolsFromArgs(args);
+        if (!cliSymbols.isEmpty()) {
+            logger.info("使用命令行指定的交易对 ({} 个): {}", cliSymbols.size(), cliSymbols);
+            return cliSymbols;
+        }
+
+        // 2) 未指定时走 OKX 公开 REST 计算价差
         try {
             logger.info("未指定交易对,开始计算价差...");
             Integer cryptoNum = config.getInt("ticker.subscribe.number");
-            List<String> topSpreadSymbols = calculateTopSpreadSymbols(config, cryptoNum);
+            int topN = cryptoNum != null ? cryptoNum : 10;
+            List<String> topSpreadSymbols = calculateTopSpreadSymbols(config, topN);
             if (topSpreadSymbols != null && !topSpreadSymbols.isEmpty()) {
                 logger.info("价差计算完成,获取到 {} 个币对: {}", topSpreadSymbols.size(), topSpreadSymbols);
                 return topSpreadSymbols;
             }
         } catch (Exception e) {
-            logger.warn("价差计算失败: {}, 将使用配置文件或默认交易对", e.getMessage());
+            logger.warn("价差计算失败: {}, 将使用配置文件中的交易对", e.getMessage());
         }
 
-        // 默认订阅 4 个主流交易对（对应 4 个 Kafka 分区）
-        // 这样数据会均匀分布到不同分区
-        List<String> defaultSymbols = Arrays.asList();
-        return defaultSymbols;
+        // 3) REST 失败（如 403）时回退到配置：支持 docker 扁平 okx.symbols 或 dev 下 okx.symbols.spot
+        List<String> cfgSymbols = symbolsFromOkxConfig(config);
+        if (!cfgSymbols.isEmpty()) {
+            logger.warn("已回退到配置文件中的交易对 ({} 个): {}", cfgSymbols.size(), cfgSymbols);
+            return cfgSymbols;
+        }
+
+        logger.warn("未配置可用交易对且价差计算失败,订阅列表为空");
+        return new ArrayList<>();
+    }
+
+    /** 解析启动参数中的币对，忽略 --env docker 这类 JVM/StreamPark 参数 */
+    private static List<String> parseTickerSymbolsFromArgs(String[] args) {
+        List<String> out = new ArrayList<>();
+        for (int i = 0; i < args.length; i++) {
+            String a = args[i];
+            if ("--env".equals(a) || "--APP_ENV".equals(a)) {
+                i++;
+                continue;
+            }
+            if (a.startsWith("--")) {
+                continue;
+            }
+            String sym = a.trim();
+            if (!sym.isEmpty()) {
+                out.add(sym);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * 从配置读取订阅币对：application-docker 为扁平字符串 okx.symbols；
+     * application-dev 为 okx.symbols.spot。
+     */
+    @SuppressWarnings("unchecked")
+    private static List<String> symbolsFromOkxConfig(ConfigLoader config) {
+        Object sym = config.get("okx.symbols");
+        if (sym instanceof String) {
+            return splitCommaSymbols((String) sym);
+        }
+        if (sym instanceof Map) {
+            Object spot = ((Map<?, ?>) sym).get("spot");
+            if (spot != null) {
+                return splitCommaSymbols(spot.toString());
+            }
+        }
+        return new ArrayList<>();
+    }
+
+    private static List<String> splitCommaSymbols(String raw) {
+        if (raw == null || raw.trim().isEmpty()) {
+            return new ArrayList<>();
+        }
+        List<String> list = new ArrayList<>();
+        for (String p : raw.split(",")) {
+            String s = p.trim();
+            if (!s.isEmpty()) {
+                list.add(s);
+            }
+        }
+        return list;
     }
 
     

@@ -1,6 +1,7 @@
 package com.crypto.dw.flink.source;
 
 import com.crypto.dw.config.ConfigLoader;
+import com.crypto.dw.utils.SpreadRateUtils;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.flink.configuration.Configuration;
@@ -269,8 +270,8 @@ public class OKXRestApiSource extends RichSourceFunction<OKXRestApiSource.PriceS
             // 计算价差 (合约价格 - 现货价格)  差价绝对值/较低的价格
             BigDecimal spread = swapPrice.subtract(spotPrice).abs();
             
-            // 计算价差率 (价差 / 现货价格)
-            BigDecimal spreadRate = spread.divide(spotPrice.min(swapPrice), 6, BigDecimal.ROUND_HALF_UP).multiply(new BigDecimal("100"));
+            // 统一价差率口径：|swap-spot| / min(spot,swap)
+            BigDecimal spreadRate = SpreadRateUtils.calculateSpreadRatePercent(spotPrice, swapPrice, 6);
             
             // 创建价差信息对象
             PriceSpreadInfo info = new PriceSpreadInfo();
@@ -345,7 +346,7 @@ public class OKXRestApiSource extends RichSourceFunction<OKXRestApiSource.PriceS
         public BigDecimal spotPrice;  // 现货价格
         public BigDecimal swapPrice;  // 合约价格
         public BigDecimal spread;  // 价差 (合约价格 - 现货价格)
-        public BigDecimal spreadRate;  // 价差率 (价差 / 现货价格)
+        public BigDecimal spreadRate;  // 价差率（|swap-spot| / min(spot,swap)）
         public long timestamp;  // 时间戳
 
         @Override

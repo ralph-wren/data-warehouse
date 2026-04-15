@@ -1,6 +1,7 @@
 package com.crypto.dw.model;
 
 import java.math.BigDecimal;
+import com.crypto.dw.utils.SpreadRateUtils;
 
 /**
  * 套利机会数据模型
@@ -109,12 +110,12 @@ public class ArbitrageOpportunity {
         // 计算当前价差
         this.currentSpread = currentFuturesPrice.subtract(currentSpotPrice);
         
-        // 计算当前价差率
-        this.currentSpreadRate = currentSpread.divide(
-            currentSpotPrice.min(currentFuturesPrice), 
-            6, 
-            BigDecimal.ROUND_HALF_UP
-        ).multiply(new BigDecimal("100"));
+        // 统一价差率口径：|swap-spot| / min(spot,swap)
+        this.currentSpreadRate = SpreadRateUtils.calculateSpreadRatePercent(
+            currentSpotPrice,
+            currentFuturesPrice,
+            6
+        );
         
         // 根据套利方向计算预估利润
         if (arbitrageDirection != null && arbitrageDirection.contains("做空现货")) {

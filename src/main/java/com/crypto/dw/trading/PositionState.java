@@ -122,11 +122,29 @@ public class PositionState implements Serializable {
      * 现货成本（USDT）= 实际成交价 × 成交数量
      */
     private BigDecimal spotCost;
+
+    /**
+     * 现货实际成交数量（币）
+     * 说明：与 amount（目标下单数量）区分，避免部分成交时计算失真
+     */
+    private BigDecimal actualSpotFilledQuantity;
     
     /**
      * 合约成本（USDT）= 实际成交价 × 成交数量
      */
     private BigDecimal futuresCost;
+
+    /**
+     * 合约实际成交数量（张）
+     * 说明：OKX 合约成交量 accFillSz 单位是“张”
+     */
+    private BigDecimal actualSwapFilledContracts;
+
+    /**
+     * 合约实际成交数量折算为币数量
+     * 计算公式：actualSwapFilledContracts × ctVal
+     */
+    private BigDecimal actualSwapFilledCoin;
     
     /**
      * 总成本（USDT）= 现货成本 + 合约成本
@@ -316,6 +334,14 @@ public class PositionState implements Serializable {
     public void setSpotCost(BigDecimal spotCost) {
         this.spotCost = spotCost;
     }
+
+    public BigDecimal getActualSpotFilledQuantity() {
+        return actualSpotFilledQuantity;
+    }
+
+    public void setActualSpotFilledQuantity(BigDecimal actualSpotFilledQuantity) {
+        this.actualSpotFilledQuantity = actualSpotFilledQuantity;
+    }
     
     public BigDecimal getFuturesCost() {
         return futuresCost;
@@ -323,6 +349,22 @@ public class PositionState implements Serializable {
     
     public void setFuturesCost(BigDecimal futuresCost) {
         this.futuresCost = futuresCost;
+    }
+
+    public BigDecimal getActualSwapFilledContracts() {
+        return actualSwapFilledContracts;
+    }
+
+    public void setActualSwapFilledContracts(BigDecimal actualSwapFilledContracts) {
+        this.actualSwapFilledContracts = actualSwapFilledContracts;
+    }
+
+    public BigDecimal getActualSwapFilledCoin() {
+        return actualSwapFilledCoin;
+    }
+
+    public void setActualSwapFilledCoin(BigDecimal actualSwapFilledCoin) {
+        this.actualSwapFilledCoin = actualSwapFilledCoin;
     }
     
     public BigDecimal getTotalCost() {

@@ -4,6 +4,7 @@ import com.crypto.dw.config.ConfigLoader;
 import com.crypto.dw.model.ArbitrageOpportunity;
 import com.crypto.dw.model.FuturesPrice;
 import com.crypto.dw.model.SpotPrice;
+import com.crypto.dw.utils.SpreadRateUtils;
 import org.apache.flink.streaming.api.functions.co.ProcessJoinFunction;
 import org.apache.flink.util.Collector;
 import org.slf4j.Logger;
@@ -69,11 +70,12 @@ public class ArbitrageCalculator
                     spotFuturesTimeDiff,spot.symbol, spotTime, futuresTime);
         }
         
-        // 计算价差
+        // 计算价差（绝对值）
         BigDecimal spread = futures.price.subtract(spot.price).abs();
         
-        // 计算价差率（相对于现货价格）
-        BigDecimal spreadRate = spread.divide(spot.price.min(futures.price), 6, RoundingMode.HALF_UP);
+        // 统一价差率口径：|swap-spot| / min(spot,swap)
+        BigDecimal spreadRatePercent = SpreadRateUtils.calculateSpreadRatePercent(spot.price, futures.price, 6);
+        BigDecimal spreadRate = spreadRatePercent.divide(new BigDecimal("100"), 8, RoundingMode.HALF_UP);
         
         // 判断是否有套利机会（价差率绝对值超过阈值）
         if (spreadRate.compareTo(arbitrageThreshold) > 0) {
@@ -82,7 +84,7 @@ public class ArbitrageCalculator
             opportunity.spotPrice = spot.price;
             opportunity.futuresPrice = futures.price;
             opportunity.spread = spread;
-            opportunity.spreadRate = spreadRate.multiply(new BigDecimal("100"));  // 转换为百分比
+            opportunity.spreadRate = spreadRatePercent;  // 已是百分比值
             
             // 判断套利方向
             if (spot.price.compareTo(futures.price) < 0) {

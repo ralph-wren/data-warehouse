@@ -10,6 +10,7 @@ import com.crypto.dw.trading.MarginSupportCache;
 import com.crypto.dw.trading.OKXTradingService;
 import com.crypto.dw.trading.OpportunityTracker;
 import com.crypto.dw.trading.PositionState;
+import com.crypto.dw.utils.SpreadRateUtils;
 import org.apache.flink.api.common.state.MapState;
 import org.apache.flink.api.common.state.MapStateDescriptor;
 import org.apache.flink.api.common.state.ValueState;
@@ -404,7 +405,10 @@ public class TradingDecisionProcessor
                 opportunityTracker.clear();
             }
             
-            // ⭐ 同步订单详情到 PositionState（如果 ArbitrageOpportunity 包含订单详情）
+            // ⭐ 先按订单ID主动查询并回填真实成交明细（主线程执行，确保Flink状态线程安全）
+            syncOrderDetailsFromOrderIds(position);
+            
+            // ⭐ 兼容旧链路：如果 ArbitrageOpportunity 包含订单详情，也同步到 PositionState
             syncOrderDetailsToPosition(opportunity, position);
             
             // 更新预估利润
@@ -461,6 +465,88 @@ public class TradingDecisionProcessor
     }
     
     /**
+     * 根据持仓中的订单ID主动查询订单详情并回填到 PositionState。
+     * 说明：必须在 Flink 主线程调用，避免在异步线程直接操作 state。
+     */
+    private void syncOrderDetailsFromOrderIds(PositionState position) throws Exception {
+        if (position == null || !position.isOpen()) {
+            return;
+        }
+        
+        // 两边都已有真实成交信息时直接跳过
+        if (position.getActualSpotPrice() != null
+            && position.getActualSwapPrice() != null
+            && position.getActualSpotFilledQuantity() != null
+            && position.getActualSwapFilledCoin() != null) {
+            return;
+        }
+        
+        String symbol = position.getSymbol();
+        String spotOrderId = position.getSpotOrderId();
+        String swapOrderId = position.getSwapOrderId();
+        if (symbol == null || spotOrderId == null || swapOrderId == null) {
+            return;
+        }
+        
+        try {
+            // 查询现货订单详情
+            String spotInstId = symbol + "-USDT";
+            com.fasterxml.jackson.databind.JsonNode spotDetail =
+                tradingService.queryOrderDetail(spotOrderId, spotInstId, "SPOT");
+            if (spotDetail != null) {
+                BigDecimal spotAvgPx = new BigDecimal(spotDetail.path("avgPx").asText("0"));
+                BigDecimal spotFillCoin = new BigDecimal(spotDetail.path("accFillSz").asText("0"));
+                BigDecimal spotFee = new BigDecimal(spotDetail.path("fee").asText("0")).abs();
+                
+                if (spotAvgPx.compareTo(BigDecimal.ZERO) > 0 && spotFillCoin.compareTo(BigDecimal.ZERO) > 0) {
+                    position.setActualSpotPrice(spotAvgPx);
+                    position.setActualSpotFilledQuantity(spotFillCoin);
+                    position.setSpotCost(spotAvgPx.multiply(spotFillCoin));
+                    position.setSpotFee(spotFee);
+                }
+            }
+            
+            // 查询合约订单详情
+            String swapInstId = symbol + "-USDT-SWAP";
+            com.fasterxml.jackson.databind.JsonNode swapDetail =
+                tradingService.queryOrderDetail(swapOrderId, swapInstId, "SWAP");
+            if (swapDetail != null) {
+                BigDecimal swapAvgPx = new BigDecimal(swapDetail.path("avgPx").asText("0"));
+                BigDecimal swapFillContracts = new BigDecimal(swapDetail.path("accFillSz").asText("0"));
+                BigDecimal swapFee = new BigDecimal(swapDetail.path("fee").asText("0")).abs();
+                
+                // 合约成交量是“张”，需要乘 ctVal 折算成币数量
+                OKXTradingService.InstrumentInfo info = tradingService.getInstrumentInfo(symbol);
+                BigDecimal ctVal = (info != null && info.ctVal != null) ? info.ctVal : BigDecimal.ONE;
+                BigDecimal swapFillCoin = swapFillContracts.multiply(ctVal);
+                
+                if (swapAvgPx.compareTo(BigDecimal.ZERO) > 0 && swapFillContracts.compareTo(BigDecimal.ZERO) > 0) {
+                    position.setActualSwapPrice(swapAvgPx);
+                    position.setActualSwapFilledContracts(swapFillContracts);
+                    position.setActualSwapFilledCoin(swapFillCoin);
+                    position.setFuturesCost(swapAvgPx.multiply(swapFillCoin));
+                    position.setFuturesFee(swapFee);
+                }
+            }
+            
+            // 汇总真实成本与手续费
+            if (position.getSpotCost() != null && position.getFuturesCost() != null) {
+                position.setTotalCost(position.getSpotCost().add(position.getFuturesCost()));
+            }
+            if (position.getSpotFee() != null && position.getFuturesFee() != null) {
+                position.setTotalFee(position.getSpotFee().add(position.getFuturesFee()));
+            }
+            if (position.getTotalCost() != null && position.getTotalFee() != null) {
+                position.setTotalExpense(position.getTotalCost().add(position.getTotalFee()));
+            }
+            
+            positionState.update(position);
+        } catch (Exception e) {
+            logger.warn("⚠️ 按订单ID同步真实成交明细失败: symbol={}, error={}", position.getSymbol(), e.getMessage());
+        }
+    }
+    
+    /**
      * 同步订单详情到 PositionState
      * 从 ArbitrageOpportunity 中提取订单详情并更新到 PositionState
      * 
@@ -481,6 +567,8 @@ public class TradingDecisionProcessor
             // 同步现货订单详情
             if (hasSpotDetail) {
                 position.setActualSpotPrice(opp.spotFillPrice);
+                // 使用订单实际成交数量（币）回填，避免部分成交时仍使用目标数量
+                position.setActualSpotFilledQuantity(opp.spotFillQuantity);
                 position.setSpotCost(opp.spotCost);
                 position.setSpotFee(opp.spotFee);
                 logger.info("✅ 现货详情已同步: actualPrice={}, cost={}, fee={}", 
@@ -490,6 +578,14 @@ public class TradingDecisionProcessor
             // 同步合约订单详情
             if (hasFuturesDetail) {
                 position.setActualSwapPrice(opp.futuresFillPrice);
+                // 合约成交量同时保存“张”和“折算币数量”
+                position.setActualSwapFilledContracts(opp.futuresFillQuantity);
+                if (opp.spotFillQuantity != null && opp.futuresFillQuantity != null
+                        && opp.futuresFillQuantity.compareTo(BigDecimal.ZERO) > 0) {
+                    BigDecimal inferredCtVal = opp.spotFillQuantity.divide(
+                        opp.futuresFillQuantity, 8, RoundingMode.HALF_UP);
+                    position.setActualSwapFilledCoin(opp.futuresFillQuantity.multiply(inferredCtVal));
+                }
                 position.setFuturesCost(opp.futuresCost);
                 position.setFuturesFee(opp.futuresFee);
                 logger.info("✅ 合约详情已同步: actualPrice={}, cost={}, fee={}", 
@@ -595,24 +691,29 @@ public class TradingDecisionProcessor
         long holdTime = System.currentTimeMillis() - pos.getOpenTime();
         boolean timeout = holdTime > maxHoldTimeMs;
         
-        // 条件 3: 止损
-        BigDecimal entrySpread = pos.getEntrySwapPrice().subtract(pos.getEntrySpotPrice());
-        BigDecimal currentSpread = opp.futuresPrice.subtract(opp.spotPrice);
-        BigDecimal spreadDiff = currentSpread.subtract(entrySpread);
+        // 条件 3: 止损（使用真实成交口径）
+        BigDecimal spotEntry = pos.getActualSpotPrice() != null ? pos.getActualSpotPrice() : pos.getEntrySpotPrice();
+        BigDecimal swapEntry = pos.getActualSwapPrice() != null ? pos.getActualSwapPrice() : pos.getEntrySwapPrice();
+        BigDecimal spotFillCoin = pos.getActualSpotFilledQuantity() != null ? pos.getActualSpotFilledQuantity() : pos.getAmount();
+        BigDecimal swapFillCoin = pos.getActualSwapFilledCoin() != null ? pos.getActualSwapFilledCoin() : pos.getAmount();
+        BigDecimal hedgedCoin = spotFillCoin.min(swapFillCoin);
         
-        if ("SHORT_SPOT_LONG_SWAP".equals(pos.getDirection())) {
-            spreadDiff = spreadDiff.negate();
+        BigDecimal totalFee = pos.getTotalFee();
+        if (totalFee == null) {
+            BigDecimal usdtAmountFallback = pos.getAmount().multiply(pos.getEntrySpotPrice());
+            totalFee = usdtAmountFallback.multiply(new BigDecimal("0.002"));
         }
         
-        // 计算未实现利润 = 价差变化 × 币数量
-        BigDecimal unrealizedProfitFromSpread = spreadDiff.multiply(pos.getAmount());
-        
-        // 计算手续费（基于 USDT 金额）
-        BigDecimal usdtAmount = pos.getAmount().multiply(pos.getEntrySpotPrice());
-        BigDecimal fee = usdtAmount.multiply(new BigDecimal("0.002"));
-        
-        // 最终未实现利润
-        BigDecimal unrealizedProfit = unrealizedProfitFromSpread.subtract(fee);
+        BigDecimal unrealizedProfit;
+        if ("SHORT_SPOT_LONG_SWAP".equals(pos.getDirection())) {
+            BigDecimal spotPnL = spotEntry.subtract(opp.spotPrice).multiply(hedgedCoin);
+            BigDecimal swapPnL = opp.futuresPrice.subtract(swapEntry).multiply(hedgedCoin);
+            unrealizedProfit = spotPnL.add(swapPnL).subtract(totalFee);
+        } else {
+            BigDecimal spotPnL = opp.spotPrice.subtract(spotEntry).multiply(hedgedCoin);
+            BigDecimal swapPnL = swapEntry.subtract(opp.futuresPrice).multiply(hedgedCoin);
+            unrealizedProfit = spotPnL.add(swapPnL).subtract(totalFee);
+        }
         boolean stopLoss = unrealizedProfit.compareTo(maxLossPerTrade.negate()) < 0;
         
         return spreadConverged || timeout || stopLoss;
@@ -626,29 +727,44 @@ public class TradingDecisionProcessor
             PositionState pos,
             Collector<TradeRecord> out) throws Exception {
         
-        // 计算当前价差
-        BigDecimal entrySpread = pos.getEntrySwapPrice().subtract(pos.getEntrySpotPrice());
-        BigDecimal currentSpread = opp.futuresPrice.subtract(opp.spotPrice);
-        BigDecimal spreadDiff = currentSpread.subtract(entrySpread);
+        // 优先使用真实成交口径：已对冲数量 + 实际成交价 + 实际手续费
+        BigDecimal spotEntry = pos.getActualSpotPrice() != null ? pos.getActualSpotPrice() : pos.getEntrySpotPrice();
+        BigDecimal swapEntry = pos.getActualSwapPrice() != null ? pos.getActualSwapPrice() : pos.getEntrySwapPrice();
+        BigDecimal spotFillCoin = pos.getActualSpotFilledQuantity() != null ? pos.getActualSpotFilledQuantity() : pos.getAmount();
+        BigDecimal swapFillCoin = pos.getActualSwapFilledCoin() != null ? pos.getActualSwapFilledCoin() : pos.getAmount();
         
-        // 根据方向调整价差差异
-        if ("SHORT_SPOT_LONG_SWAP".equals(pos.getDirection())) {
-            spreadDiff = spreadDiff.negate();
+        // 只按已对冲数量计算套利利润，未对冲数量单独作为风险敞口
+        BigDecimal hedgedCoin = spotFillCoin.min(swapFillCoin);
+        BigDecimal unhedgedCoin = spotFillCoin.subtract(swapFillCoin).abs();
+        
+        // 真实手续费优先；缺失时回退旧逻辑
+        BigDecimal totalFee = pos.getTotalFee();
+        if (totalFee == null) {
+            BigDecimal usdtAmountFallback = pos.getAmount().multiply(pos.getEntrySpotPrice());
+            totalFee = usdtAmountFallback.multiply(new BigDecimal("0.002"));
         }
         
-        // 计算未实现利润 = 价差变化 × 币数量
-        BigDecimal unrealizedProfitFromSpread = spreadDiff.multiply(pos.getAmount());
+        BigDecimal unrealizedProfit;
+        if ("SHORT_SPOT_LONG_SWAP".equals(pos.getDirection())) {
+            BigDecimal spotPnL = spotEntry.subtract(opp.spotPrice).multiply(hedgedCoin);
+            BigDecimal swapPnL = opp.futuresPrice.subtract(swapEntry).multiply(hedgedCoin);
+            unrealizedProfit = spotPnL.add(swapPnL).subtract(totalFee);
+        } else {
+            BigDecimal spotPnL = opp.spotPrice.subtract(spotEntry).multiply(hedgedCoin);
+            BigDecimal swapPnL = swapEntry.subtract(opp.futuresPrice).multiply(hedgedCoin);
+            unrealizedProfit = spotPnL.add(swapPnL).subtract(totalFee);
+        }
         
-        // 计算手续费（基于 USDT 金额）
-        BigDecimal usdtAmount = pos.getAmount().multiply(pos.getEntrySpotPrice());
-        BigDecimal fee = usdtAmount.multiply(new BigDecimal("0.002"));
-        
-        // 最终未实现利润 = 价差利润 - 手续费
-        BigDecimal unrealizedProfit = unrealizedProfitFromSpread.subtract(fee);
-        
-        // 计算利润率（基于 USDT 金额）
-        BigDecimal profitRate = unrealizedProfit.divide(usdtAmount, 6, RoundingMode.HALF_UP)
-            .multiply(new BigDecimal("100"));
+        // 投入金额按真实总成本优先
+        BigDecimal investAmount = pos.getTotalCost();
+        if (investAmount == null || investAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            investAmount = spotEntry.multiply(hedgedCoin);
+        }
+        BigDecimal profitRate = BigDecimal.ZERO;
+        if (investAmount.compareTo(BigDecimal.ZERO) > 0) {
+            profitRate = unrealizedProfit.divide(investAmount, 6, RoundingMode.HALF_UP)
+                .multiply(new BigDecimal("100"));
+        }
         
         // 更新持仓状态
         pos.setUnrealizedProfit(unrealizedProfit);
@@ -658,11 +774,13 @@ public class TradingDecisionProcessor
         // 定期输出日志(每10秒输出一次)
         long now = System.currentTimeMillis();
         if (now - pos.getLastLogTime() > 10000) {
-            logger.info("📊 持仓更新: {} | 方向: {} | 未实现利润: {} USDT ({} %) | 持仓时间: {} 秒",
+            logger.info("📊 持仓更新: {} | 方向: {} | 未实现利润: {} USDT ({} %) | 已对冲: {} | 未对冲: {} | 持仓时间: {} 秒",
                 pos.getSymbol(),
                 pos.getDirection(),
                 unrealizedProfit.setScale(4, RoundingMode.HALF_UP),
                 profitRate.setScale(2, RoundingMode.HALF_UP),
+                hedgedCoin.setScale(8, RoundingMode.HALF_UP),
+                unhedgedCoin.setScale(8, RoundingMode.HALF_UP),
                 (now - pos.getOpenTime()) / 1000);
             pos.setLastLogTime(now);
             positionState.update(pos);
@@ -672,7 +790,7 @@ public class TradingDecisionProcessor
     private void openPosition(ArbitrageOpportunity opp, Collector<TradeRecord> out) 
             throws Exception {
         
-        logger.info("🎯 开仓: {} | 价差率: {}%", opp.symbol, opp.spreadRate);
+        logger.debug("🎯 开仓: {} | 价差率: {}%", opp.symbol, opp.spreadRate);
         
         // ⭐ 第一步：检查策略支持（在检查持仓数量之前）
         // 构造标准交易对格式（如 "BTC-USDT"）
@@ -684,24 +802,12 @@ public class TradingDecisionProcessor
         
         // 检查策略支持
         if (isStrategyA && !marginCache.supportsStrategyA(standardSymbol)) {
-            logger.warn("⚠️ 币种 {} 不支持策略A（现货卖出+合约买入，需要杠杆借币），拒绝开仓", opp.symbol);
-            
-            // 写入拒绝日志
-            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
-            String rejectLog = String.format("%s,%s,OPEN,REJECTED,N/A,N/A,N/A,N/A,REJECTED,不支持策略A（需要杠杆借币）",
-                timestamp, opp.symbol);
-            orderDetailWriter.write(rejectLog);
+            logger.debug("⚠️ 币种 {} 不支持策略A（现货卖出+合约买入，需要杠杆借币），拒绝开仓", opp.symbol);
             return;
         }
         
         if (isStrategyB && !marginCache.supportsStrategyB(standardSymbol)) {
             logger.warn("⚠️ 币种 {} 不支持策略B（现货买入+合约卖出），拒绝开仓", opp.symbol);
-            
-            // 写入拒绝日志
-            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
-            String rejectLog = String.format("%s,%s,OPEN,REJECTED,N/A,N/A,N/A,N/A,REJECTED,不支持策略B",
-                timestamp, opp.symbol);
-            orderDetailWriter.write(rejectLog);
             return;
         }
         
@@ -1108,6 +1214,45 @@ public class TradingDecisionProcessor
                     timestamp, pos.getSymbol(), pos.getDirection(), swapOrderId, 
                     opp.futuresPrice, pos.getAmount());
                 orderDetailWriter.write(swapLog);
+
+                // 提交平仓后先关闭本地持仓，避免重复触发平仓
+                pos.setOpen(false);
+                pos.setLastUpdateTime(System.currentTimeMillis());
+                positionState.update(pos);
+
+                // 异步查询平仓订单详情并汇总本次套利最终盈亏
+                final String finalSymbol = pos.getSymbol();
+                final String finalDirection = pos.getDirection();
+                final String finalSpotOrderId = spotOrderId;
+                final String finalSwapOrderId = swapOrderId;
+                final PositionState finalPos = pos;
+
+                orderQueryExecutor.submit(() -> {
+                    try {
+                        Thread.sleep(2000);
+                        String closeSpotInstId = finalSymbol + "-USDT";
+                        String closeSwapInstId = finalSymbol + "-USDT-SWAP";
+
+                        com.fasterxml.jackson.databind.JsonNode closeSpotDetail =
+                            tradingService.queryOrderDetail(finalSpotOrderId, closeSpotInstId, "SPOT");
+                        com.fasterxml.jackson.databind.JsonNode closeSwapDetail =
+                            tradingService.queryOrderDetail(finalSwapOrderId, closeSwapInstId, "SWAP");
+
+                        if (closeSpotDetail != null) {
+                            saveOrderDetailToCsv(finalSymbol, closeSpotDetail, "SPOT");
+                        }
+                        if (closeSwapDetail != null) {
+                            saveOrderDetailToCsv(finalSymbol, closeSwapDetail, "SWAP");
+                        }
+
+                        writeFinalSummaryAfterClose(
+                            finalPos, finalDirection, closeSpotDetail, closeSwapDetail, opp.spotPrice, opp.futuresPrice
+                        );
+                    } catch (Exception e) {
+                        logger.error("❌ 平仓后查询订单明细并统计最终盈亏失败: symbol={}, error={}",
+                            finalSymbol, e.getMessage(), e);
+                    }
+                });
             }
         } catch (Exception e) {
             logger.error("❌ 平仓失败: {}", e.getMessage(), e);
@@ -1118,6 +1263,129 @@ public class TradingDecisionProcessor
                 timestamp, pos.getSymbol(), pos.getDirection(), 
                 e.getMessage().replace(",", ";"));
             orderDetailWriter.write(errorLog);
+        }
+    }
+
+    /**
+     * 平仓后根据真实订单明细写入最终汇总（已实现盈亏）
+     */
+    private void writeFinalSummaryAfterClose(
+            PositionState pos,
+            String direction,
+            com.fasterxml.jackson.databind.JsonNode closeSpotDetail,
+            com.fasterxml.jackson.databind.JsonNode closeSwapDetail,
+            BigDecimal closeSpotPriceFallback,
+            BigDecimal closeSwapPriceFallback) {
+        try {
+            BigDecimal openSpotPrice = pos.getActualSpotPrice() != null ? pos.getActualSpotPrice() : pos.getEntrySpotPrice();
+            BigDecimal openSwapPrice = pos.getActualSwapPrice() != null ? pos.getActualSwapPrice() : pos.getEntrySwapPrice();
+            BigDecimal openSpotCoin = pos.getActualSpotFilledQuantity() != null ? pos.getActualSpotFilledQuantity() : pos.getAmount();
+            BigDecimal openSwapCoin = pos.getActualSwapFilledCoin() != null ? pos.getActualSwapFilledCoin() : pos.getAmount();
+            BigDecimal openFee = pos.getTotalFee() != null ? pos.getTotalFee() : BigDecimal.ZERO;
+
+            BigDecimal closeSpotPrice = parseDecimal(closeSpotDetail, "avgPx", closeSpotPriceFallback);
+            BigDecimal closeSpotCoin = parseDecimal(closeSpotDetail, "accFillSz", pos.getAmount());
+            BigDecimal closeSpotFee = parseAbsDecimal(closeSpotDetail, "fee", BigDecimal.ZERO);
+
+            BigDecimal closeSwapPrice = parseDecimal(closeSwapDetail, "avgPx", closeSwapPriceFallback);
+            BigDecimal closeSwapContracts = parseDecimal(closeSwapDetail, "accFillSz", BigDecimal.ZERO);
+            BigDecimal closeSwapFee = parseAbsDecimal(closeSwapDetail, "fee", BigDecimal.ZERO);
+
+            // 合约平仓张数折算币数量
+            BigDecimal ctVal = BigDecimal.ONE;
+            try {
+                OKXTradingService.InstrumentInfo info = tradingService.getInstrumentInfo(pos.getSymbol());
+                if (info != null && info.ctVal != null) {
+                    ctVal = info.ctVal;
+                }
+            } catch (Exception e) {
+                logger.warn("⚠️ 读取 ctVal 失败，回退1: symbol={}, error={}", pos.getSymbol(), e.getMessage());
+            }
+            BigDecimal closeSwapCoin = closeSwapContracts.multiply(ctVal);
+
+            // 最终套利只按“四腿都成交”的已对冲数量统计
+            BigDecimal hedgedCoin = openSpotCoin.min(openSwapCoin).min(closeSpotCoin).min(closeSwapCoin);
+            if (hedgedCoin.compareTo(BigDecimal.ZERO) <= 0) {
+                logger.warn("⚠️ 平仓汇总跳过：已对冲数量为0, symbol={}", pos.getSymbol());
+                return;
+            }
+
+            BigDecimal spotPnl;
+            BigDecimal swapPnl;
+            if ("LONG_SPOT_SHORT_SWAP".equals(direction)) {
+                spotPnl = closeSpotPrice.subtract(openSpotPrice).multiply(hedgedCoin);
+                swapPnl = openSwapPrice.subtract(closeSwapPrice).multiply(hedgedCoin);
+            } else {
+                spotPnl = openSpotPrice.subtract(closeSpotPrice).multiply(hedgedCoin);
+                swapPnl = closeSwapPrice.subtract(openSwapPrice).multiply(hedgedCoin);
+            }
+
+            BigDecimal totalFee = openFee.add(closeSpotFee).add(closeSwapFee);
+            BigDecimal realizedProfit = spotPnl.add(swapPnl).subtract(totalFee);
+
+            BigDecimal investAmount = pos.getTotalCost() != null ? pos.getTotalCost() : openSpotPrice.multiply(hedgedCoin);
+            BigDecimal profitRate = BigDecimal.ZERO;
+            if (investAmount.compareTo(BigDecimal.ZERO) > 0) {
+                profitRate = realizedProfit.divide(investAmount, 6, RoundingMode.HALF_UP)
+                    .multiply(new BigDecimal("100"));
+            }
+
+            long holdSeconds = (System.currentTimeMillis() - pos.getOpenTime()) / 1000;
+            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+            String summaryLine = String.format("%s,%s,%s,%s,%s,%s,%d,%s,%s,%s,%s,%s",
+                timestamp,
+                pos.getSymbol(),
+                direction,
+                "CLOSED",
+                realizedProfit.setScale(8, RoundingMode.HALF_UP),
+                profitRate.setScale(4, RoundingMode.HALF_UP),
+                holdSeconds,
+                openSpotPrice,
+                openSwapPrice,
+                closeSpotPrice,
+                closeSwapPrice,
+                hedgedCoin.setScale(8, RoundingMode.HALF_UP)
+            );
+            summaryWriter.write(summaryLine);
+
+            logger.info("✅ 平仓最终盈亏已统计: symbol={}, realizedProfit={} USDT, profitRate={}%, hedgedCoin={}",
+                pos.getSymbol(),
+                realizedProfit.setScale(8, RoundingMode.HALF_UP),
+                profitRate.setScale(4, RoundingMode.HALF_UP),
+                hedgedCoin.setScale(8, RoundingMode.HALF_UP));
+        } catch (Exception e) {
+            logger.error("❌ 写入平仓最终汇总失败: symbol={}, error={}", pos.getSymbol(), e.getMessage(), e);
+        }
+    }
+
+    private BigDecimal parseDecimal(com.fasterxml.jackson.databind.JsonNode node, String field, BigDecimal fallback) {
+        try {
+            if (node == null) {
+                return fallback;
+            }
+            String val = node.path(field).asText();
+            if (val == null || val.isEmpty()) {
+                return fallback;
+            }
+            BigDecimal parsed = new BigDecimal(val);
+            return parsed.compareTo(BigDecimal.ZERO) > 0 ? parsed : fallback;
+        } catch (Exception e) {
+            return fallback;
+        }
+    }
+
+    private BigDecimal parseAbsDecimal(com.fasterxml.jackson.databind.JsonNode node, String field, BigDecimal fallback) {
+        try {
+            if (node == null) {
+                return fallback;
+            }
+            String val = node.path(field).asText();
+            if (val == null || val.isEmpty()) {
+                return fallback;
+            }
+            return new BigDecimal(val).abs();
+        } catch (Exception e) {
+            return fallback;
         }
     }
     
@@ -1549,10 +1817,11 @@ public class TradingDecisionProcessor
             opp.futuresFee = new BigDecimal(futuresDetail.path("fee").asText()).abs();  // 手续费取绝对值
             opp.futuresFeeCurrency = futuresDetail.path("feeCcy").asText();
             
-            // 计算合约成本 = 成交价 × 成交量
-            // 注意: OKX 合约的成交量单位是张,需要根据合约面值计算
-            // 简化处理: 假设合约面值已经包含在成交量中
-            opp.futuresCost = opp.futuresFillPrice.multiply(opp.futuresFillQuantity);
+            // 计算合约成本 = 成交价 × 成交量(张) × 合约面值(ctVal)
+            // 说明：OKX 合约 accFillSz 单位是“张”，不能直接当币数量使用
+            OKXTradingService.InstrumentInfo info = tradingService.getInstrumentInfo(opp.symbol);
+            BigDecimal ctVal = (info != null && info.ctVal != null) ? info.ctVal : BigDecimal.ONE;
+            opp.futuresCost = opp.futuresFillPrice.multiply(opp.futuresFillQuantity).multiply(ctVal);
             
             logger.info("✅ 合约交易明细已更新: orderId={}, fillPrice={}, fillQty={}, fee={} {}, cost={}", 
                 opp.futuresOrderId, opp.futuresFillPrice, opp.futuresFillQuantity, 
@@ -1638,8 +1907,11 @@ public class TradingDecisionProcessor
             
             // 5. 实际成交价差信息
             BigDecimal actualSpread = opp.futuresFillPrice.subtract(opp.spotFillPrice);
-            BigDecimal actualSpreadRate = actualSpread.divide(opp.spotFillPrice, 6, RoundingMode.HALF_UP)
-                .multiply(new BigDecimal("100"));
+            BigDecimal actualSpreadRate = SpreadRateUtils.calculateSpreadRatePercent(
+                opp.spotFillPrice,
+                opp.futuresFillPrice,
+                6
+            );
             
             report.append("║ 【5. 实际成交价差信息】                                                         ║\n");
             report.append(String.format("║   实际价差: %s USDT                                                         ║\n", 

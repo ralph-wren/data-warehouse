@@ -70,7 +70,15 @@ arbitrage:
     max-positions: 5                 # 最大持仓数量
     open-threshold: 0.005            # 开仓阈值(0.5%)
     close-threshold: 0.002           # 平仓阈值(0.2%)
+    direction-filter:
+      enable-long-spot-short-swap: true   # 仅放行做多现货做空合约方向
+      enable-short-spot-long-swap: false  # 暂时禁用做空现货做多合约方向
+    open-guard:
+      fee-rate-estimate: 0.0015       # 预估手续费成本占比（双边）
+      slippage-rate-estimate: 0.0015  # 预估滑点占比（开+平）
+      safety-buffer-rate: 0.0005      # 安全缓冲占比
     status-log-interval-ms: 30000    # 持仓状态日志输出间隔（毫秒）
+    order-detail-sync-interval-ms: 5000  # 订单详情回填最小间隔（毫秒），避免每条行情都触发外部查询
     order-timeout-seconds: 30        # 订单超时时间(秒)
     max-hold-time-minutes: 60        # 最大持仓时间(分钟)
     max-loss-per-trade: 10           # 单笔最大亏损(USDT)

@@ -97,6 +97,23 @@ public class OKXTradingService implements Serializable {
                 instId, ctVal, lotSz, minSz,lever);
         }
     }
+
+    /**
+     * 账户可下单上限信息
+     */
+    public static class MaxSizeInfo implements Serializable {
+        private static final long serialVersionUID = 1L;
+
+        public final String instId;
+        public final BigDecimal maxBuy;
+        public final BigDecimal maxSell;
+
+        public MaxSizeInfo(String instId, BigDecimal maxBuy, BigDecimal maxSell) {
+            this.instId = instId;
+            this.maxBuy = maxBuy;
+            this.maxSell = maxSell;
+        }
+    }
     
     /**
      * 构造函数（不带杠杆缓存）
@@ -209,43 +226,22 @@ public class OKXTradingService implements Serializable {
             String instId = symbol + "-USDT";
             logger.info("📈 做多现货（买入）: {} | 数量: {} {}", instId, size, symbol);
             
-            // 检查订单金额是否满足最小要求,如果不满足则调整为最小金额
-            // 最小订单金额 = max(OKX最小限额10 USDT, 配置的交易金额)
+            // 风控修复：
+            // 历史逻辑会把小额订单强行抬升到 10 USDT，可能导致抬升后超过交易所 max order amount（51005）。
+            // 这里保持策略计算得到的原始数量下单，避免二次放大引入越限。
             BigDecimal orderValue = size.multiply(price);
-            BigDecimal okxMinAmount = new BigDecimal("10");  // OKX 最小 10 USDT
-            
-            // 从配置读取交易金额(如果有的话)
-            ConfigLoader config = ConfigLoader.getInstance();
-            BigDecimal configTradeAmount = new BigDecimal(
-                config.getString("arbitrage.trading.trade-amount-usdt", "10")
-            );
-            
-            // 取两者中的较大值作为最小订单金额
-            BigDecimal minOrderAmount = okxMinAmount.max(configTradeAmount);
-            
-            // 如果订单金额小于最小要求,调整数量以满足最小金额
-            if (orderValue.compareTo(minOrderAmount) < 0) {
-                logger.warn("⚠ 订单金额 {} USDT < 最小要求 {} USDT,自动调整数量", 
-                    orderValue.setScale(2, RoundingMode.HALF_UP), minOrderAmount);
-                logger.info("  └─ 原始: {} {} × {} USDT = {} USDT", 
-                    size, symbol, price, orderValue.setScale(2, RoundingMode.HALF_UP));
-                
-                // 重新计算数量: 数量 = 最小金额 / 价格
-                size = minOrderAmount.divide(price, 8, RoundingMode.UP);
-                orderValue = size.multiply(price);
-                
-                logger.info("  └─ 调整: {} {} × {} USDT = {} USDT", 
-                    size, symbol, price, orderValue.setScale(2, RoundingMode.HALF_UP));
-                logger.info("  └─ OKX最小限额: {} USDT | 配置交易金额: {} USDT", 
-                    okxMinAmount, configTradeAmount);
-            }
+            logger.info("  └─ 保持原始下单数量: {} {} × {} USDT = {} USDT",
+                size, symbol, price, orderValue.setScale(8, RoundingMode.HALF_UP));
             
             ObjectNode orderRequest = OBJECT_MAPPER.createObjectNode();
             orderRequest.put("instId", instId);
-            orderRequest.put("tdMode", "cross");  // 全仓杠杆模式（支持借币做空）
-            orderRequest.put("ccy", "USDT");  // 保证金币种(杠杆模式必需)
+            // 做多现货使用现金模式，避免误走保证金口径导致可买上限过小
+            orderRequest.put("tdMode", "cash");
             orderRequest.put("side", "buy");  // 买入
             orderRequest.put("ordType", "market");  // 市价单
+            // 关键修复：cash 现货买入默认按 quote_ccy 解释 sz（即花费USDT金额）。
+            // 我们传入的是币数量，必须显式指定 base_ccy，避免 sz=600 被解释为“花费600 USDT”。
+            orderRequest.put("tgtCcy", "base_ccy");
             // 注意: 现货杠杆模式不支持 tgtCcy 参数,直接使用 sz 表示币数量
             // 使用 toPlainString() 避免科学计数法(如 1E-5),OKX API 不接受科学计数法
             orderRequest.put("sz", size.toPlainString());  // 币的数量(避免科学计数法)
@@ -1647,6 +1643,59 @@ public class OKXTradingService implements Serializable {
             logger.error("❌ 查询订单详情异常: orderId={}, instId={}, instType={}, error={}", 
                 orderId, instId, instType, e.getMessage(), e);
             this.lastErrorMessage = e.getMessage();
+            return null;
+        }
+    }
+
+    /**
+     * 查询当前账户可下单上限（max-size）
+     * 接口：GET /api/v5/account/max-size
+     *
+     * @param instId 交易对（如 CORE-USDT / CORE-USDT-SWAP）
+     * @param tdMode 交易模式（cash / cross / isolated）
+     * @return 最大可买可卖信息，失败返回 null
+     */
+    public MaxSizeInfo queryMaxSize(String instId, String tdMode) {
+        try {
+            String requestPath = "/api/v5/account/max-size?instId=" + instId + "&tdMode=" + tdMode;
+            String timestamp = getIsoTimestamp();
+            String method = "GET";
+            String signature = generateSignature(timestamp, method, requestPath, "");
+
+            Request request = new Request.Builder()
+                .url(baseUrl + requestPath)
+                .header("OK-ACCESS-KEY", apiKey)
+                .header("OK-ACCESS-SIGN", signature)
+                .header("OK-ACCESS-TIMESTAMP", timestamp)
+                .header("OK-ACCESS-PASSPHRASE", passphrase)
+                .header("Content-Type", "application/json")
+                .get()
+                .build();
+
+            try (Response response = httpClient.newCall(request).execute()) {
+                String responseBody = response.body() != null ? response.body().string() : "";
+                if (!response.isSuccessful() || responseBody.isEmpty()) {
+                    logger.warn("⚠️ 查询max-size失败: instId={}, tdMode={}, http={}", instId, tdMode, response.code());
+                    return null;
+                }
+                JsonNode root = OBJECT_MAPPER.readTree(responseBody);
+                if (!"0".equals(root.path("code").asText())) {
+                    String msg = root.path("msg").asText();
+                    logger.warn("⚠️ 查询max-size返回失败: instId={}, tdMode={}, msg={}", instId, tdMode, msg);
+                    return null;
+                }
+                JsonNode data = root.path("data");
+                if (!data.isArray() || data.size() == 0) {
+                    logger.warn("⚠️ 查询max-size无数据: instId={}, tdMode={}", instId, tdMode);
+                    return null;
+                }
+                JsonNode row = data.get(0);
+                BigDecimal maxBuy = new BigDecimal(row.path("maxBuy").asText("0"));
+                BigDecimal maxSell = new BigDecimal(row.path("maxSell").asText("0"));
+                return new MaxSizeInfo(instId, maxBuy, maxSell);
+            }
+        } catch (Exception e) {
+            logger.warn("⚠️ 查询max-size异常: instId={}, tdMode={}, error={}", instId, tdMode, e.getMessage());
             return null;
         }
     }

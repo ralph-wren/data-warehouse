@@ -5,8 +5,8 @@
 3. 代码按 **功能分包**，可复用逻辑抽到独立子包（如 `util`、`kafka`），避免复制粘贴。
 4. **关键类与分支保留简短注释**；**每次改动在类或方法上注明意图**（与 data-warehouse 约定一致）。 
 5. 任务完成后自检：**能否编译、配置是否齐全、README/脚本是否与代码一致**。
-6. **这一条让你做再做，不得自行生成文档** **每解决一类问题**：在 `docs/` 写说明，文件名建议 `{日期时间}-{功能简述}-{问题}.md`；并更新根目录 `**问题解决汇总.md`**（分类索引）。
-7. **测试与临时文件** 放在 `test/` 或 `target/`，勿污染 `src/main`。
+6. **测试与临时文件** 放在 `test/` 或 `target/`，勿污染 `src/main`。
+7. 技术方案统一放在tech_solution目录下，流程图使用mermaid表示
 8. **正式配置相关文件** 脚本文件放scripts目录下，k8s相关文件放k8s目录下
 9. **skills** 安装目录可参考 `~/.agents/skills`、`~/.cursor/skills-cursor` 等；可沉淀到本仓库 `skills/`（与 data-warehouse 一致）。
 10. **输入输出**（Kafka topic、REST、文件路径）尽量 **集中配置**（`application-*.yml`），避免硬编码。
@@ -23,4 +23,3 @@
 21. 通过`mysql -u root -h 127.0.0.1 -P 9030 `方式能直连本地doris查询数据 
 22. 脚本`scripts/kafka-filter-consume.sh`能查询kafka内数据
 23. 本地redis地址localhost:6379 
-24. 技术方案统一放在tech_solution目录下，流程图使用mermaid表示

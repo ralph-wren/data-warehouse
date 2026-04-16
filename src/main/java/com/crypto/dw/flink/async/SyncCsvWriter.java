@@ -58,7 +58,7 @@ public class SyncCsvWriter implements AutoCloseable {
             return thread;
         });
         
-        logger.info("✓ 同步 CSV 写入器已启动: {} (线程池大小: {})", filePrefix, threadPoolSize);
+        logger.debug("✓ 同步 CSV 写入器已启动: {} (线程池大小: {})", filePrefix, threadPoolSize);
     }
     
     /**

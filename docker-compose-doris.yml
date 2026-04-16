@@ -1,15 +1,14 @@
 # Doris Docker Compose 配置
 # 使用桥接网络 + 端口映射,确保 Flink 能连接
 #
-# Apple Silicon 必读：本标签（fe/be-3.0.7-rc01-1204）仅有 linux/amd64 清单。
-# 在 Docker Desktop（aarch64 宿主机）上强制跑 amd64 容器时，BE 进程 doris_be 常在 QEMU 下 SIGSEGV（退出码 139）。
-# 可行方案：① Linux x86_64 主机或云机跑本 compose；② Colima: colima start --arch x86_64（整 VM 为 x86，再 docker compose，勿依赖 binfmt 模拟）；③ 换带 arm64 的官方镜像标签（若后续发布）。
-# Colima 下若 pull 报 registry EOF：在 ~/.colima/default/colima.yaml 的 docker.registry-mirrors 配置镜像加速后执行 colima restart。
+# 镜像：apache/doris:fe-3.0.8 / be-3.0.8（Docker Hub 含 linux/arm64 + amd64）。未写 platform，Apple Silicon 上默认拉 arm64，无需 Rosetta/Colima。
+# 若从旧版/RC 升 3.0.8 后 FE/BE 起不来，多为元数据不兼容，可备份后清空 doris-fe-data / doris-be-data 对应 volume 再试。
+# x86  Linux 或需强制 amd64 时：可取消注释各服务下的 platform 行。
 
 services:
   doris-fe:
-    image: apache/doris:fe-3.0.7-rc01-1204
-    platform: linux/amd64
+    image: apache/doris:fe-3.0.8
+    # platform: linux/amd64   # 仅在需强制 amd64 时取消注释
     container_name: doris-fe
     hostname: doris-fe
     # 镜像 fe.conf 默认 JDK17 堆为 8G，本机/Colima 易 OOM；启动前改为 2G，并与 cgroup 上限对齐
@@ -48,8 +47,8 @@ services:
       retries: 30
 
   doris-be:
-    image: apache/doris:be-3.0.7-rc01-1204
-    platform: linux/amd64
+    image: apache/doris:be-3.0.8
+    # platform: linux/amd64   # 仅在需强制 amd64 时取消注释
     container_name: doris-be
     hostname: doris-be
     # BE 默认 /dev/shm 过小易导致进程异常退出；与官方 Docker 建议一致
@@ -59,8 +58,8 @@ services:
         soft: 65535
         hard: 65535
     # BE 镜像 be.conf 中 JDK17 堆默认可为 2G；cgroup 略大于堆，覆盖 C++ 进程与 page cache
-    mem_limit: 2g
-    memswap_limit: 2g
+    mem_limit: 3g
+    memswap_limit: 3g
     ports:
       - "8040:8040"   # BE HTTP 端口
       - "9050:9050"   # BE Heartbeat 端口

@@ -127,6 +127,8 @@ public class TradeRecord implements Serializable {
     public String swapPosSide;
     public String spotOrderState;
     public String swapOrderState;
+    public String spotTdMode;
+    public String swapTdMode;
     public BigDecimal orderSpotPrice;
     public BigDecimal orderSwapPrice;
     public BigDecimal entrySpreadRate;
@@ -136,6 +138,9 @@ public class TradeRecord implements Serializable {
     public BigDecimal actualSwapFilledContracts;
     public BigDecimal actualSwapFilledCoin;
     public BigDecimal ctVal;
+    public BigDecimal lotSz;
+    public BigDecimal minSz;
+    public Integer instrumentMaxLeverage;
 
     /**
      * 成本与费用

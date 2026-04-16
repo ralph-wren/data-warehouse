@@ -124,12 +124,12 @@ public class FlinkADSArbitrageJob {
             return spot;
         })
         .filter(spot -> spot.price != null && spot.price.compareTo(BigDecimal.ZERO) > 0)
-        .name("Parse Spot Price")
+        .name("SpotParse")
         // ⭐ 按秒聚合,保留每秒最新的一条记录,减少join数据量
         .keyBy(spot -> spot.symbol)
         .window(TumblingEventTimeWindows.of(Time.seconds(1)))
         .reduce((spot1, spot2) -> spot2.timestamp > spot1.timestamp ? spot2 : spot1)
-        .name("Aggregate Spot By Second");
+        .name("SpotAgg1s");
         
         logger.info("✓ 现货价格流创建成功");
         
@@ -173,12 +173,12 @@ public class FlinkADSArbitrageJob {
             return futures;
         })
         .filter(futures -> futures.price != null && futures.price.compareTo(BigDecimal.ZERO) > 0)
-        .name("Parse Swap Price")
+        .name("SwapParse")
         // ⭐ 按秒聚合,保留每秒最新的一条记录,减少join数据量
         .keyBy(futures -> futures.symbol)
         .window(org.apache.flink.streaming.api.windowing.assigners.TumblingEventTimeWindows.of(Time.seconds(1)))
         .reduce((futures1, futures2) -> futures2.timestamp > futures1.timestamp ? futures2 : futures1)
-        .name("Aggregate Futures By Second");
+        .name("SwapAgg1s");
         
         logger.info("✓ 合约价格流创建成功");
         
@@ -190,7 +190,7 @@ public class FlinkADSArbitrageJob {
             .intervalJoin(futuresStream.keyBy(futures -> futures.symbol))
             .between(Time.seconds(-2), Time.seconds(2))
             .process(new ArbitrageCalculator(config))  // 传入配置,从配置文件读取套利阈值
-            .name("Calculate Arbitrage");
+            .name("ArbCalc");
         
         logger.info("✓ Interval Join 配置成功（时间窗口: ±2 秒）");
         
@@ -200,7 +200,7 @@ public class FlinkADSArbitrageJob {
         DataStream<TradeRecord> tradeStream = arbitrageStream
             .keyBy(opp -> opp.symbol)
             .process(new TradingDecisionProcessor(config))
-            .name("Trading Decision");
+            .name("TD");
         
         logger.info("✓ 交易决策处理器配置成功");
         
@@ -211,20 +211,20 @@ public class FlinkADSArbitrageJob {
         DataStream<String> tradeJsonStream = tradeStream
             .map(record -> {
                 ObjectNode json = OBJECT_MAPPER.createObjectNode();
-                json.put("symbol", record.symbol);
-                json.put("action", record.action);
-                json.put("direction", record.direction);
-                json.put("amount", record.amount.toString());
-                json.put("spot_price", record.spotPrice.toString());
-                json.put("swap_price", record.swapPrice.toString());
-                json.put("spread_rate", record.spreadRate != null ? record.spreadRate.toString() : "0");
-                json.put("profit", record.profit != null ? record.profit.toString() : "0");
-                json.put("close_reason", record.closeReason != null ? record.closeReason : "");
-                json.put("hold_time_ms", record.holdTimeMs);
-                json.put("timestamp", record.timestamp);
+                putString(json, "symbol", record.symbol);
+                putString(json, "action", record.action);
+                putString(json, "direction", record.direction);
+                putDecimal(json, "amount", record.amount != null ? record.amount : record.amountUsdt);
+                putDecimal(json, "spot_price", record.spotPrice != null ? record.spotPrice : firstNonNull(record.currentSpotPrice, record.discoverSpotPrice, record.orderSpotPrice));
+                putDecimal(json, "swap_price", record.swapPrice != null ? record.swapPrice : firstNonNull(record.currentSwapPrice, record.discoverSwapPrice, record.orderSwapPrice));
+                putDecimal(json, "spread_rate", record.spreadRate != null ? record.spreadRate : firstNonNull(record.currentSpreadRate, record.discoverSpreadRate));
+                putDecimal(json, "profit", record.profit != null ? record.profit : firstNonNull(record.realizedProfit, record.unrealizedProfit));
+                putString(json, "close_reason", record.closeReason);
+                putLong(json, "hold_time_ms", record.holdTimeMs != null ? record.holdTimeMs : toMillis(record.holdTimeSeconds));
+                putLong(json, "timestamp", record.timestamp);
                 return json.toString();
             })
-            .name("Trade To JSON");
+            .name("TradeJSON");
         
         DorisSink<String> tradeSink = dorisSinkFactory.createDorisSink(
             "crypto_dw",
@@ -232,7 +232,7 @@ public class FlinkADSArbitrageJob {
             "ads-arbitrage-trades"
         );
         
-        tradeJsonStream.sinkTo(tradeSink).name("Doris Trade Sink");
+        tradeJsonStream.sinkTo(tradeSink).name("DorisTrade");
         
         logger.info("✓ Doris Trade Sink 创建成功");
         logger.info("  Database: crypto_dw");
@@ -282,6 +282,8 @@ public class FlinkADSArbitrageJob {
                 putString(json, "swap_pos_side", record.swapPosSide);
                 putString(json, "spot_order_state", record.spotOrderState);
                 putString(json, "swap_order_state", record.swapOrderState);
+                putString(json, "spot_margin_mode", record.spotTdMode);
+                putString(json, "swap_margin_mode", record.swapTdMode);
                 putDecimal(json, "order_spot_price", record.orderSpotPrice);
                 putDecimal(json, "order_swap_price", record.orderSwapPrice);
                 putDecimal(json, "entry_spread_rate", record.entrySpreadRate);
@@ -292,6 +294,9 @@ public class FlinkADSArbitrageJob {
                 putDecimal(json, "actual_swap_filled_contracts", record.actualSwapFilledContracts);
                 putDecimal(json, "actual_swap_filled_coin", record.actualSwapFilledCoin);
                 putDecimal(json, "ct_val", record.ctVal);
+                putDecimal(json, "lot_sz", record.lotSz);
+                putDecimal(json, "min_sz", record.minSz);
+                putInteger(json, "instrument_max_leverage", record.instrumentMaxLeverage);
 
                 putDecimal(json, "amount_coin", record.amountCoin);
                 putDecimal(json, "amount_usdt", record.amountUsdt);
@@ -332,7 +337,7 @@ public class FlinkADSArbitrageJob {
                 putString(json, "ext_json", record.extJson);
                 return json.toString();
             })
-            .name("Arbitrage Detail To JSON");
+            .name("ArbDetailJSON");
         
         DorisSink<String> dorisSink = dorisSinkFactory.createDorisSink(
             "crypto_dw",
@@ -340,7 +345,7 @@ public class FlinkADSArbitrageJob {
             "ads-arbitrage"
         );
         
-        jsonStream.sinkTo(dorisSink).name("Doris ADS Sink");
+        jsonStream.sinkTo(dorisSink).name("DorisADS");
         
         logger.info("✓ Doris Sink 创建成功");
         logger.info("  Database: crypto_dw");
@@ -388,6 +393,23 @@ public class FlinkADSArbitrageJob {
         String symbol = record.symbol != null ? record.symbol : "UNKNOWN";
         String eventType = record.eventType != null ? record.eventType : "UNKNOWN";
         return symbol + "_" + eventType + "_" + record.timestamp;
+    }
+
+    @SafeVarargs
+    private static <T> T firstNonNull(T... values) {
+        if (values == null) {
+            return null;
+        }
+        for (T value : values) {
+            if (value != null) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private static Long toMillis(Long seconds) {
+        return seconds != null ? seconds * 1000L : null;
     }
 
     private static String formatDateTime(long timestampMs) {

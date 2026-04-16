@@ -25,6 +25,8 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 
 
 
@@ -41,6 +43,7 @@ public class TradingDecisionProcessor
         extends KeyedProcessFunction<String, ArbitrageOpportunity, TradeRecord> {
     
     private static final Logger logger = LoggerFactory.getLogger(TradingDecisionProcessor.class);
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     
     private final ConfigLoader config;
     private final boolean tradingEnabled;
@@ -51,6 +54,7 @@ public class TradingDecisionProcessor
     private final long maxHoldTimeMs;
     private final BigDecimal maxLossPerTrade;
     private final int maxPositions;  // 最大持仓数量
+    private final long statusLogIntervalMs;  // 状态日志输出间隔（毫秒）
     
     // 黑名单配置
     private final boolean blacklistEnabled;
@@ -66,6 +70,10 @@ public class TradingDecisionProcessor
     private transient SyncCsvWriter orderDetailFullWriter;  // 订单详细信息日志（包含成交时间、手续费等）
     private transient SyncCsvWriter statusLogWriter;    // ⭐ 状态日志（用于验证数据计算准确性）
     private transient java.util.concurrent.ExecutorService orderQueryExecutor;  // 订单查询线程池
+    private transient java.util.concurrent.ConcurrentLinkedQueue<TradeRecord> pendingDorisRecords;  // 异步线程产出的 Doris 事件
+
+    // raw_payload_json 最大长度控制，避免 Doris 单行过大导致写入失败
+    private static final int RAW_JSON_MAX_LEN = 6000;
     
     // Redis Key 常量
     private static final String REDIS_KEY_POSITION_COUNT = "okx:arbitrage:position:count";  // 全局持仓计数器
@@ -80,9 +88,6 @@ public class TradingDecisionProcessor
     private transient MapState<String, Integer> failureCount;  // 失败次数统计
     private transient MapState<String, Long> blacklistExpiry;  // 黑名单过期时间
     
-    // 状态日志输出间隔: 30秒
-    private static final long STATUS_LOG_INTERVAL_MS = 30000;
-    
     public TradingDecisionProcessor(ConfigLoader config) {
         this.config = config;
         this.tradingEnabled = config.getBoolean("arbitrage.trading.enabled", false);
@@ -96,6 +101,15 @@ public class TradingDecisionProcessor
         this.maxHoldTimeMs = maxHoldMinutes * 60 * 1000L;
         
         this.maxLossPerTrade = new BigDecimal(config.getString("arbitrage.trading.max-loss-per-trade", "10"));
+
+        Long configuredStatusLogIntervalMs = config.getLong("arbitrage.trading.status-log-interval-ms");
+        if (configuredStatusLogIntervalMs == null) {
+            throw new IllegalStateException("缺少配置: arbitrage.trading.status-log-interval-ms");
+        }
+        if (configuredStatusLogIntervalMs <= 0) {
+            throw new IllegalStateException("非法配置: arbitrage.trading.status-log-interval-ms 必须 > 0");
+        }
+        this.statusLogIntervalMs = configuredStatusLogIntervalMs;
         
         // 读取黑名单配置
         this.blacklistEnabled = config.getBoolean("arbitrage.trading.blacklist.enabled", true);
@@ -182,6 +196,7 @@ public class TradingDecisionProcessor
             t.setDaemon(true);  // 设置为守护线程
             return t;
         });
+        pendingDorisRecords = new java.util.concurrent.ConcurrentLinkedQueue<>();
         
         // 初始化持仓状态
         ValueStateDescriptor<PositionState> positionDescriptor = new ValueStateDescriptor<>(
@@ -301,6 +316,7 @@ public class TradingDecisionProcessor
         if (!tradingEnabled || !tradingService.isConfigured()) {
             return;
         }
+        drainPendingDorisRecords(out);
         
         PositionState position = positionState.value();
         OpportunityTracker tracker = opportunityTracker.value();
@@ -316,10 +332,10 @@ public class TradingDecisionProcessor
         Long lastLogTime = lastStatusLogTime.value();
         if (lastLogTime == null) {
             // 首次处理,注册第一个定时器
-            long nextTimerTime = now + STATUS_LOG_INTERVAL_MS;
+            long nextTimerTime = now + statusLogIntervalMs;
             ctx.timerService().registerProcessingTimeTimer(nextTimerTime);
             lastStatusLogTime.update(now);
-            logger.debug("⏰ 已启动状态日志定时器,每 {} 秒输出一次", STATUS_LOG_INTERVAL_MS / 1000);
+            logger.debug("⏰ 已启动状态日志定时器,每 {} 秒输出一次", statusLogIntervalMs / 1000);
         }
         
         // 决策 1: 开仓逻辑
@@ -430,6 +446,7 @@ public class TradingDecisionProcessor
         
         // 定时器触发,输出状态日志
         long now = System.currentTimeMillis();
+        drainPendingDorisRecords(out);
         
         // 获取当前状态
         PositionState position = positionState.value();
@@ -440,7 +457,7 @@ public class TradingDecisionProcessor
         // 如果没有币对信息,跳过本次输出
         if (symbol == null || symbol.isEmpty()) {
             // 注册下一个定时器
-            long nextTimerTime = now + STATUS_LOG_INTERVAL_MS;
+            long nextTimerTime = now + statusLogIntervalMs;
             ctx.timerService().registerProcessingTimeTimer(nextTimerTime);
             return;
         }
@@ -449,7 +466,7 @@ public class TradingDecisionProcessor
         if (isInBlacklist(symbol)) {
             // 在黑名单中,不输出状态日志
             // 注册下一个定时器
-            long nextTimerTime = now + STATUS_LOG_INTERVAL_MS;
+            long nextTimerTime = now + statusLogIntervalMs;
             ctx.timerService().registerProcessingTimeTimer(nextTimerTime);
             return;
         }
@@ -461,7 +478,7 @@ public class TradingDecisionProcessor
         }
         
         // 注册下一个定时器,实现持续定时输出
-        long nextTimerTime = now + STATUS_LOG_INTERVAL_MS;
+        long nextTimerTime = now + statusLogIntervalMs;
         ctx.timerService().registerProcessingTimeTimer(nextTimerTime);
     }
     
@@ -498,12 +515,24 @@ public class TradingDecisionProcessor
                 BigDecimal spotAvgPx = new BigDecimal(spotDetail.path("avgPx").asText("0"));
                 BigDecimal spotFillCoin = new BigDecimal(spotDetail.path("accFillSz").asText("0"));
                 BigDecimal spotFee = new BigDecimal(spotDetail.path("fee").asText("0")).abs();
+                String spotFeeCcy = spotDetail.path("feeCcy").asText();
+                String spotOrdType = spotDetail.path("ordType").asText();
+                String spotSide = spotDetail.path("side").asText();
+                String spotPosSide = spotDetail.path("posSide").asText();
+                String spotState = spotDetail.path("state").asText();
+                String spotTdMode = spotDetail.path("tdMode").asText();
                 
                 if (spotAvgPx.compareTo(BigDecimal.ZERO) > 0 && spotFillCoin.compareTo(BigDecimal.ZERO) > 0) {
                     position.setActualSpotPrice(spotAvgPx);
                     position.setActualSpotFilledQuantity(spotFillCoin);
                     position.setSpotCost(spotAvgPx.multiply(spotFillCoin));
                     position.setSpotFee(spotFee);
+                    position.setSpotFeeCurrency(spotFeeCcy);
+                    position.setSpotOrderType(spotOrdType);
+                    position.setSpotOrderSide(spotSide);
+                    position.setSpotPosSide(spotPosSide);
+                    position.setSpotOrderState(spotState);
+                    position.setSpotTdMode(spotTdMode);
                 }
             }
             
@@ -515,6 +544,12 @@ public class TradingDecisionProcessor
                 BigDecimal swapAvgPx = new BigDecimal(swapDetail.path("avgPx").asText("0"));
                 BigDecimal swapFillContracts = new BigDecimal(swapDetail.path("accFillSz").asText("0"));
                 BigDecimal swapFee = new BigDecimal(swapDetail.path("fee").asText("0")).abs();
+                String swapFeeCcy = swapDetail.path("feeCcy").asText();
+                String swapOrdType = swapDetail.path("ordType").asText();
+                String swapSide = swapDetail.path("side").asText();
+                String swapPosSide = swapDetail.path("posSide").asText();
+                String swapState = swapDetail.path("state").asText();
+                String swapTdMode = swapDetail.path("tdMode").asText();
                 
                 // 合约成交量是“张”，需要乘 ctVal 折算成币数量
                 OKXTradingService.InstrumentInfo info = tradingService.getInstrumentInfo(symbol);
@@ -527,7 +562,25 @@ public class TradingDecisionProcessor
                     position.setActualSwapFilledCoin(swapFillCoin);
                     position.setFuturesCost(swapAvgPx.multiply(swapFillCoin));
                     position.setFuturesFee(swapFee);
+                    position.setFuturesFeeCurrency(swapFeeCcy);
+                    position.setCtVal(ctVal);
+                    if (info != null) {
+                        position.setLotSz(info.lotSz);
+                        position.setMinSz(info.minSz);
+                        position.setInstrumentMaxLeverage(info.lever != null ? info.lever.intValue() : null);
+                    }
+                    position.setSwapOrderType(swapOrdType);
+                    position.setSwapOrderSide(swapSide);
+                    position.setSwapPosSide(swapPosSide);
+                    position.setSwapOrderState(swapState);
+                    position.setSwapTdMode(swapTdMode);
                 }
+            }
+
+            // 保存订单详情原始 JSON（裁剪），便于排障
+            if (spotDetail != null || swapDetail != null) {
+                String raw = buildOrderDetailsRawJson(symbol, spotOrderId, swapOrderId, spotDetail, swapDetail);
+                position.setLastOrderDetailsRawJson(raw);
             }
             
             // 汇总真实成本与手续费
@@ -572,6 +625,7 @@ public class TradingDecisionProcessor
                 position.setActualSpotFilledQuantity(opp.spotFillQuantity);
                 position.setSpotCost(opp.spotCost);
                 position.setSpotFee(opp.spotFee);
+                position.setSpotFeeCurrency(opp.spotFeeCurrency);
                 logger.info("✅ 现货详情已同步: actualPrice={}, cost={}, fee={}", 
                     opp.spotFillPrice, opp.spotCost, opp.spotFee);
             }
@@ -589,6 +643,18 @@ public class TradingDecisionProcessor
                 }
                 position.setFuturesCost(opp.futuresCost);
                 position.setFuturesFee(opp.futuresFee);
+                position.setFuturesFeeCurrency(opp.futuresFeeCurrency);
+                try {
+                    OKXTradingService.InstrumentInfo info = tradingService.getInstrumentInfo(opp.symbol);
+                    if (info != null) {
+                        position.setCtVal(info.ctVal);
+                        position.setLotSz(info.lotSz);
+                        position.setMinSz(info.minSz);
+                        position.setInstrumentMaxLeverage(info.lever != null ? info.lever.intValue() : null);
+                    }
+                } catch (Exception e) {
+                    logger.warn("⚠️ 同步合约规格信息失败: symbol={}, error={}", opp.symbol, e.getMessage());
+                }
                 logger.info("✅ 合约详情已同步: actualPrice={}, cost={}, fee={}", 
                     opp.futuresFillPrice, opp.futuresCost, opp.futuresFee);
             }
@@ -1345,9 +1411,62 @@ public class TradingDecisionProcessor
                 realizedProfit.setScale(8, RoundingMode.HALF_UP),
                 profitRate.setScale(4, RoundingMode.HALF_UP),
                 hedgedCoin.setScale(8, RoundingMode.HALF_UP));
+
+            if (pendingDorisRecords != null) {
+                pendingDorisRecords.offer(buildClosedSummaryRecord(
+                    pos,
+                    direction,
+                    closeSpotPrice,
+                    closeSwapPrice,
+                    closeSpotFee,
+                    closeSwapFee,
+                    ctVal,
+                    hedgedCoin,
+                    holdSeconds,
+                    realizedProfit,
+                    profitRate
+                ));
+            }
         } catch (Exception e) {
             logger.error("❌ 写入平仓最终汇总失败: symbol={}, error={}", pos.getSymbol(), e.getMessage(), e);
         }
+    }
+
+    private TradeRecord buildClosedSummaryRecord(
+            PositionState pos,
+            String direction,
+            BigDecimal closeSpotPrice,
+            BigDecimal closeSwapPrice,
+            BigDecimal closeSpotFee,
+            BigDecimal closeSwapFee,
+            BigDecimal ctVal,
+            BigDecimal hedgedCoin,
+            long holdSeconds,
+            BigDecimal realizedProfit,
+            BigDecimal profitRate) {
+        TradeRecord record = buildBaseRecord(null, pos, System.currentTimeMillis());
+        record.eventType = "CLOSED";
+        record.eventStage = "SUMMARY";
+        record.action = "CLOSE";
+        record.positionStatus = "CLOSED";
+        record.direction = direction;
+        record.logSource = "SUMMARY";
+        record.ctVal = ctVal;
+        record.holdTimeSeconds = holdSeconds;
+        record.hedgedCoinQty = hedgedCoin;
+        record.closeSpotPrice = closeSpotPrice;
+        record.closeSwapPrice = closeSwapPrice;
+        record.closeSpotFee = closeSpotFee;
+        record.closeSwapFee = closeSwapFee;
+        record.realizedProfit = realizedProfit;
+        record.realizedProfitRate = profitRate;
+        record.statusMessage = String.format(
+            "平仓完成, realizedProfit=%s, profitRate=%s, hedgedCoin=%s",
+            realizedProfit.setScale(8, RoundingMode.HALF_UP).toPlainString(),
+            profitRate.setScale(4, RoundingMode.HALF_UP).toPlainString(),
+            hedgedCoin.setScale(8, RoundingMode.HALF_UP).toPlainString()
+        );
+        return record;
     }
 
     private BigDecimal parseDecimal(com.fasterxml.jackson.databind.JsonNode node, String field, BigDecimal fallback) {
@@ -1464,6 +1583,9 @@ public class TradingDecisionProcessor
             record.currentSpreadRate != null ? record.currentSpreadRate.setScale(3, RoundingMode.HALF_UP).toPlainString() : "N/A",
             record.unrealizedProfit != null ? record.unrealizedProfit.setScale(4, RoundingMode.HALF_UP).toPlainString() : "N/A"
         );
+
+        // ext_json: 关键指标快照（小体量，便于排障）
+        record.extJson = buildExtSnapshotJson(record);
         return record;
     }
 
@@ -1554,7 +1676,8 @@ public class TradingDecisionProcessor
         record.symbol = opp != null ? opp.symbol : (position != null ? position.getSymbol() : null);
         record.spotInstId = record.symbol != null ? record.symbol + "-USDT" : null;
         record.swapInstId = record.symbol != null ? record.symbol + "-USDT-SWAP" : null;
-        record.direction = opp != null ? opp.arbitrageDirection : (position != null ? position.getDirection() : null);
+        // 方向口径统一：持仓事件优先使用 PositionState.direction（枚举），避免混入中文描述
+        record.direction = position != null ? position.getDirection() : (opp != null ? opp.arbitrageDirection : null);
         record.discoverSpotPrice = opp != null ? opp.spotPrice : (position != null ? position.getEntrySpotPrice() : null);
         record.discoverSwapPrice = opp != null ? opp.futuresPrice : (position != null ? position.getEntrySwapPrice() : null);
         record.discoverSpread = opp != null ? opp.spread : null;
@@ -1573,6 +1696,9 @@ public class TradingDecisionProcessor
             record.positionStatus = position.isOpen() ? "OPEN" : "CLOSED";
             record.spotOrderId = position.getSpotOrderId();
             record.swapOrderId = position.getSwapOrderId();
+            // 下单参考价：以开仓委托价格为准（与 order_spot_price/order_swap_price 字段语义一致）
+            record.orderSpotPrice = position.getEntrySpotPrice();
+            record.orderSwapPrice = position.getEntrySwapPrice();
             record.entrySpreadRate = position.getEntrySpreadRate();
             record.actualSpotPrice = position.getActualSpotPrice();
             record.actualSwapPrice = position.getActualSwapPrice();
@@ -1586,10 +1712,46 @@ public class TradingDecisionProcessor
             record.swapCost = position.getFuturesCost();
             record.totalCost = position.getTotalCost();
             record.spotFee = position.getSpotFee();
+            record.spotFeeCcy = position.getSpotFeeCurrency();
             record.swapFee = position.getFuturesFee();
+            record.swapFeeCcy = position.getFuturesFeeCurrency();
             record.totalFee = position.getTotalFee();
             record.totalExpense = position.getTotalExpense();
             record.unrealizedProfit = position.getUnrealizedProfit();
+            record.ctVal = position.getCtVal();
+            record.lotSz = position.getLotSz();
+            record.minSz = position.getMinSz();
+            record.instrumentMaxLeverage = position.getInstrumentMaxLeverage();
+            record.spotOrderType = position.getSpotOrderType();
+            record.spotOrderSide = position.getSpotOrderSide();
+            record.spotPosSide = position.getSpotPosSide();
+            record.spotOrderState = position.getSpotOrderState();
+            record.spotTdMode = position.getSpotTdMode();
+            record.swapOrderType = position.getSwapOrderType();
+            record.swapOrderSide = position.getSwapOrderSide();
+            record.swapPosSide = position.getSwapPosSide();
+            record.swapOrderState = position.getSwapOrderState();
+            record.swapTdMode = position.getSwapTdMode();
+            if (position.getLastOrderDetailsRawJson() != null && !position.getLastOrderDetailsRawJson().trim().isEmpty()) {
+                record.rawPayloadJson = position.getLastOrderDetailsRawJson();
+            }
+        }
+
+        // raw_payload_json: 机会对象快照（裁剪后）
+        if (opp != null) {
+            if (record.rawPayloadJson == null || record.rawPayloadJson.trim().isEmpty()) {
+                record.rawPayloadJson = truncateJsonQuietly(opp, RAW_JSON_MAX_LEN);
+            }
+            // 对于无持仓的事件，也补一下下单参考价（发现阶段）
+            if (record.orderSpotPrice == null) {
+                record.orderSpotPrice = opp.spotPrice;
+            }
+            if (record.orderSwapPrice == null) {
+                record.orderSwapPrice = opp.futuresPrice;
+            }
+            if (record.entrySpreadRate == null) {
+                record.entrySpreadRate = opp.spreadRate;
+            }
         }
         return record;
     }
@@ -1599,6 +1761,101 @@ public class TradingDecisionProcessor
             return null;
         }
         return left.multiply(right);
+    }
+
+    private void drainPendingDorisRecords(Collector<TradeRecord> out) {
+        if (pendingDorisRecords == null) {
+            return;
+        }
+        TradeRecord record;
+        while ((record = pendingDorisRecords.poll()) != null) {
+            out.collect(record);
+        }
+    }
+
+    private String buildExtSnapshotJson(TradeRecord record) {
+        try {
+            ObjectNode root = OBJECT_MAPPER.createObjectNode();
+            root.put("eventType", record.eventType);
+            root.put("eventStage", record.eventStage);
+            root.put("symbol", record.symbol);
+            if (record.spotOrderId != null) {
+                root.put("spotOrderId", record.spotOrderId);
+            }
+            if (record.swapOrderId != null) {
+                root.put("swapOrderId", record.swapOrderId);
+            }
+            if (record.amountCoin != null) {
+                root.put("amountCoin", record.amountCoin.toPlainString());
+            }
+            if (record.amountUsdt != null) {
+                root.put("amountUsdt", record.amountUsdt.toPlainString());
+            }
+            if (record.currentSpreadRate != null) {
+                root.put("currentSpreadRate", record.currentSpreadRate.toPlainString());
+            }
+            if (record.unrealizedProfit != null) {
+                root.put("unrealizedProfit", record.unrealizedProfit.toPlainString());
+            }
+            if (record.realizedProfit != null) {
+                root.put("realizedProfit", record.realizedProfit.toPlainString());
+            }
+            if (record.ctVal != null) {
+                root.put("ctVal", record.ctVal.toPlainString());
+            }
+            if (record.instrumentMaxLeverage != null) {
+                root.put("instrumentMaxLeverage", record.instrumentMaxLeverage);
+            }
+            return root.toString();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String truncateJsonQuietly(Object obj, int maxLen) {
+        try {
+            String json = OBJECT_MAPPER.writeValueAsString(obj);
+            if (json == null) {
+                return null;
+            }
+            if (json.length() <= maxLen) {
+                return json;
+            }
+            return json.substring(0, maxLen);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String buildOrderDetailsRawJson(
+            String symbol,
+            String spotOrderId,
+            String swapOrderId,
+            com.fasterxml.jackson.databind.JsonNode spotDetail,
+            com.fasterxml.jackson.databind.JsonNode swapDetail) {
+        try {
+            ObjectNode root = OBJECT_MAPPER.createObjectNode();
+            root.put("symbol", symbol);
+            if (spotOrderId != null) {
+                root.put("spotOrderId", spotOrderId);
+            }
+            if (swapOrderId != null) {
+                root.put("swapOrderId", swapOrderId);
+            }
+            if (spotDetail != null) {
+                root.set("spotDetail", spotDetail);
+            }
+            if (swapDetail != null) {
+                root.set("swapDetail", swapDetail);
+            }
+            String json = root.toString();
+            if (json.length() <= RAW_JSON_MAX_LEN) {
+                return json;
+            }
+            return json.substring(0, RAW_JSON_MAX_LEN);
+        } catch (Exception e) {
+            return null;
+        }
     }
     
     

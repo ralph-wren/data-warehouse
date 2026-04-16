@@ -155,11 +155,21 @@ public class PositionState implements Serializable {
      * 现货手续费（USDT）
      */
     private BigDecimal spotFee;
+
+    /**
+     * 现货手续费币种
+     */
+    private String spotFeeCurrency;
     
     /**
      * 合约手续费（USDT）
      */
     private BigDecimal futuresFee;
+
+    /**
+     * 合约手续费币种
+     */
+    private String futuresFeeCurrency;
     
     /**
      * 总手续费（USDT）= 现货手续费 + 合约手续费
@@ -170,6 +180,35 @@ public class PositionState implements Serializable {
      * 总费用（USDT）= 总成本 + 总手续费
      */
     private BigDecimal totalExpense;
+
+    /**
+     * 合约规格信息
+     */
+    private BigDecimal ctVal;
+    private BigDecimal lotSz;
+    private BigDecimal minSz;
+    private Integer instrumentMaxLeverage;
+
+    /**
+     * 订单维度字段（来自 OKX 订单详情）
+     */
+    private String spotOrderType;
+    private String spotOrderSide;
+    private String spotPosSide;
+    private String spotOrderState;
+    private String spotTdMode;
+
+    private String swapOrderType;
+    private String swapOrderSide;
+    private String swapPosSide;
+    private String swapOrderState;
+    private String swapTdMode;
+
+    /**
+     * 最近一次查询到的订单详情原始 JSON（裁剪后）
+     * 用于在 Doris 宽表中排障追溯
+     */
+    private String lastOrderDetailsRawJson;
     
     // Getters and Setters
     
@@ -382,6 +421,14 @@ public class PositionState implements Serializable {
     public void setSpotFee(BigDecimal spotFee) {
         this.spotFee = spotFee;
     }
+
+    public String getSpotFeeCurrency() {
+        return spotFeeCurrency;
+    }
+
+    public void setSpotFeeCurrency(String spotFeeCurrency) {
+        this.spotFeeCurrency = spotFeeCurrency;
+    }
     
     public BigDecimal getFuturesFee() {
         return futuresFee;
@@ -389,6 +436,14 @@ public class PositionState implements Serializable {
     
     public void setFuturesFee(BigDecimal futuresFee) {
         this.futuresFee = futuresFee;
+    }
+
+    public String getFuturesFeeCurrency() {
+        return futuresFeeCurrency;
+    }
+
+    public void setFuturesFeeCurrency(String futuresFeeCurrency) {
+        this.futuresFeeCurrency = futuresFeeCurrency;
     }
     
     public BigDecimal getTotalFee() {
@@ -405,6 +460,126 @@ public class PositionState implements Serializable {
     
     public void setTotalExpense(BigDecimal totalExpense) {
         this.totalExpense = totalExpense;
+    }
+
+    public BigDecimal getCtVal() {
+        return ctVal;
+    }
+
+    public void setCtVal(BigDecimal ctVal) {
+        this.ctVal = ctVal;
+    }
+
+    public BigDecimal getLotSz() {
+        return lotSz;
+    }
+
+    public void setLotSz(BigDecimal lotSz) {
+        this.lotSz = lotSz;
+    }
+
+    public BigDecimal getMinSz() {
+        return minSz;
+    }
+
+    public void setMinSz(BigDecimal minSz) {
+        this.minSz = minSz;
+    }
+
+    public Integer getInstrumentMaxLeverage() {
+        return instrumentMaxLeverage;
+    }
+
+    public void setInstrumentMaxLeverage(Integer instrumentMaxLeverage) {
+        this.instrumentMaxLeverage = instrumentMaxLeverage;
+    }
+
+    public String getSpotOrderType() {
+        return spotOrderType;
+    }
+
+    public void setSpotOrderType(String spotOrderType) {
+        this.spotOrderType = spotOrderType;
+    }
+
+    public String getSpotOrderSide() {
+        return spotOrderSide;
+    }
+
+    public void setSpotOrderSide(String spotOrderSide) {
+        this.spotOrderSide = spotOrderSide;
+    }
+
+    public String getSpotPosSide() {
+        return spotPosSide;
+    }
+
+    public void setSpotPosSide(String spotPosSide) {
+        this.spotPosSide = spotPosSide;
+    }
+
+    public String getSpotOrderState() {
+        return spotOrderState;
+    }
+
+    public void setSpotOrderState(String spotOrderState) {
+        this.spotOrderState = spotOrderState;
+    }
+
+    public String getSpotTdMode() {
+        return spotTdMode;
+    }
+
+    public void setSpotTdMode(String spotTdMode) {
+        this.spotTdMode = spotTdMode;
+    }
+
+    public String getSwapOrderType() {
+        return swapOrderType;
+    }
+
+    public void setSwapOrderType(String swapOrderType) {
+        this.swapOrderType = swapOrderType;
+    }
+
+    public String getSwapOrderSide() {
+        return swapOrderSide;
+    }
+
+    public void setSwapOrderSide(String swapOrderSide) {
+        this.swapOrderSide = swapOrderSide;
+    }
+
+    public String getSwapPosSide() {
+        return swapPosSide;
+    }
+
+    public void setSwapPosSide(String swapPosSide) {
+        this.swapPosSide = swapPosSide;
+    }
+
+    public String getSwapOrderState() {
+        return swapOrderState;
+    }
+
+    public void setSwapOrderState(String swapOrderState) {
+        this.swapOrderState = swapOrderState;
+    }
+
+    public String getSwapTdMode() {
+        return swapTdMode;
+    }
+
+    public void setSwapTdMode(String swapTdMode) {
+        this.swapTdMode = swapTdMode;
+    }
+
+    public String getLastOrderDetailsRawJson() {
+        return lastOrderDetailsRawJson;
+    }
+
+    public void setLastOrderDetailsRawJson(String lastOrderDetailsRawJson) {
+        this.lastOrderDetailsRawJson = lastOrderDetailsRawJson;
     }
     
     @Override

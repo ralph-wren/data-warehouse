@@ -20,7 +20,7 @@
 18. flink算子要添加名字，简单说明算子含义 
 19. 对重要方法要有单元测试 
 20. 写新的代码前，参考仓库已有代码的写作风格、规范，不准同一个功能多处实现 
-21. 通过`mysql -u root -h 127.0.0.1 -P 3306 `方式能直连本地doris查询数据 
+21. 通过`mysql -u root -h 127.0.0.1 -P 9030 `方式能直连本地doris查询数据 
 22. 脚本`scripts/kafka-filter-consume.sh`能查询kafka内数据
 23. 本地redis地址localhost:6379 
 24. 技术方案统一放在tech_solution目录下，流程图使用mermaid表示

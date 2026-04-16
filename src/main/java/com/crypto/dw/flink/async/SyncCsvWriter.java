@@ -126,7 +126,7 @@ public class SyncCsvWriter implements AutoCloseable {
                 writer.flush();
             }
             
-            logger.info("✓ 日志文件已创建: {}", logFile.getAbsolutePath());
+//            logger.info("✓ 日志文件已创建: {}", logFile.getAbsolutePath());
         }
     }
     

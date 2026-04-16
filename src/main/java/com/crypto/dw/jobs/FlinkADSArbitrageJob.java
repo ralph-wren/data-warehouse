@@ -26,6 +26,10 @@ import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 
 /**
  * Flink ADS 跨市场套利机会计算作业 - 重构版
@@ -234,21 +238,101 @@ public class FlinkADSArbitrageJob {
         logger.info("  Database: crypto_dw");
         logger.info("  Table: dwd_arbitrage_trades");
         
-        // ========== 步骤 7: 输出套利机会到 Doris ==========
-        DataStream<String> jsonStream = arbitrageStream
-            .map(opportunity -> {
+        // ========== 步骤 7: 输出套利明细事件到 Doris ==========
+        DataStream<String> jsonStream = tradeStream
+            .map(record -> {
                 ObjectNode json = OBJECT_MAPPER.createObjectNode();
-                json.put("symbol", opportunity.symbol);
-                json.put("spot_price", opportunity.spotPrice.toString());
-                json.put("futures_price", opportunity.futuresPrice.toString());
-                json.put("spread", opportunity.spread.toString());
-                json.put("spread_rate", opportunity.spreadRate.toString());
-                json.put("arbitrage_direction", opportunity.arbitrageDirection);
-                json.put("profit_estimate", opportunity.profitEstimate.toString());
-                json.put("timestamp", opportunity.timestamp);
+                putString(json, "record_id", buildRecordId(record));
+                putString(json, "symbol", record.symbol);
+                putLong(json, "event_time_ms", record.timestamp);
+                putString(json, "event_type", record.eventType);
+                putString(json, "event_stage", record.eventStage);
+                putString(json, "log_time", formatDateTime(record.timestamp));
+                putString(json, "spot_inst_id", record.spotInstId);
+                putString(json, "swap_inst_id", record.swapInstId);
+                putString(json, "arbitrage_direction", record.direction);
+                putString(json, "position_status", record.positionStatus);
+                putString(json, "action", record.action);
+                putString(json, "close_reason", record.closeReason);
+                putString(json, "error_code", record.errorCode);
+                putString(json, "error_message", record.errorMessage);
+
+                putDecimal(json, "discover_spot_price", record.discoverSpotPrice);
+                putDecimal(json, "discover_swap_price", record.discoverSwapPrice);
+                putDecimal(json, "discover_spread", record.discoverSpread);
+                putDecimal(json, "discover_spread_rate", record.discoverSpreadRate);
+                putDecimal(json, "unit_profit_estimate", record.unitProfitEstimate);
+                putDecimal(json, "profit_estimate", record.discoverProfitEstimate);
+
+                putBoolean(json, "trading_enabled", record.tradingEnabled);
+                putDecimal(json, "trade_amount_usdt", record.tradeAmountUsdt);
+                putDecimal(json, "open_threshold", record.openThreshold);
+                putDecimal(json, "close_threshold", record.closeThreshold);
+                putInteger(json, "max_hold_time_minutes", record.maxHoldTimeMinutes);
+                putDecimal(json, "max_loss_usdt", record.maxLossUsdt);
+                putInteger(json, "leverage_config", record.leverageConfig);
+
+                putString(json, "spot_order_id", record.spotOrderId);
+                putString(json, "swap_order_id", record.swapOrderId);
+                putString(json, "spot_order_type", record.spotOrderType);
+                putString(json, "swap_order_type", record.swapOrderType);
+                putString(json, "spot_order_side", record.spotOrderSide);
+                putString(json, "swap_order_side", record.swapOrderSide);
+                putString(json, "spot_pos_side", record.spotPosSide);
+                putString(json, "swap_pos_side", record.swapPosSide);
+                putString(json, "spot_order_state", record.spotOrderState);
+                putString(json, "swap_order_state", record.swapOrderState);
+                putDecimal(json, "order_spot_price", record.orderSpotPrice);
+                putDecimal(json, "order_swap_price", record.orderSwapPrice);
+                putDecimal(json, "entry_spread_rate", record.entrySpreadRate);
+
+                putDecimal(json, "actual_spot_price", record.actualSpotPrice);
+                putDecimal(json, "actual_swap_price", record.actualSwapPrice);
+                putDecimal(json, "actual_spot_filled_qty", record.actualSpotFilledQty);
+                putDecimal(json, "actual_swap_filled_contracts", record.actualSwapFilledContracts);
+                putDecimal(json, "actual_swap_filled_coin", record.actualSwapFilledCoin);
+                putDecimal(json, "ct_val", record.ctVal);
+
+                putDecimal(json, "amount_coin", record.amountCoin);
+                putDecimal(json, "amount_usdt", record.amountUsdt);
+                putDecimal(json, "spot_cost", record.spotCost);
+                putDecimal(json, "swap_cost", record.swapCost);
+                putDecimal(json, "total_cost", record.totalCost);
+                putDecimal(json, "spot_fee", record.spotFee);
+                putString(json, "spot_fee_ccy", record.spotFeeCcy);
+                putDecimal(json, "swap_fee", record.swapFee);
+                putString(json, "swap_fee_ccy", record.swapFeeCcy);
+                putDecimal(json, "total_fee", record.totalFee);
+                putDecimal(json, "total_expense", record.totalExpense);
+
+                putLong(json, "hold_time_seconds", record.holdTimeSeconds);
+                putDecimal(json, "current_spot_price", record.currentSpotPrice);
+                putDecimal(json, "current_swap_price", record.currentSwapPrice);
+                putDecimal(json, "current_spread", record.currentSpread);
+                putDecimal(json, "current_spread_rate", record.currentSpreadRate);
+                putDecimal(json, "hedged_coin_qty", record.hedgedCoinQty);
+                putDecimal(json, "unhedged_coin_qty", record.unhedgedCoinQty);
+                putDecimal(json, "unrealized_profit", record.unrealizedProfit);
+                putDecimal(json, "profit_rate", record.detailedProfitRate);
+
+                putDecimal(json, "close_spot_price", record.closeSpotPrice);
+                putDecimal(json, "close_swap_price", record.closeSwapPrice);
+                putDecimal(json, "close_spot_fee", record.closeSpotFee);
+                putDecimal(json, "close_swap_fee", record.closeSwapFee);
+                putDecimal(json, "realized_profit", record.realizedProfit);
+                putDecimal(json, "realized_profit_rate", record.realizedProfitRate);
+
+                putBoolean(json, "tracker_active", record.trackerActive);
+                putDecimal(json, "tracker_spread_rate", record.trackerSpreadRate);
+                putLong(json, "tracker_duration_seconds", record.trackerDurationSeconds);
+
+                putString(json, "status_message", record.statusMessage);
+                putString(json, "log_source", record.logSource);
+                putString(json, "raw_payload_json", record.rawPayloadJson);
+                putString(json, "ext_json", record.extJson);
                 return json.toString();
             })
-            .name("To JSON");
+            .name("Arbitrage Detail To JSON");
         
         DorisSink<String> dorisSink = dorisSinkFactory.createDorisSink(
             "crypto_dw",
@@ -268,5 +352,46 @@ public class FlinkADSArbitrageJob {
         
         // 执行作业
         env.execute("Flink ADS Arbitrage Job (Refactored)");
+    }
+
+    private static void putString(ObjectNode json, String field, String value) {
+        if (value != null) {
+            json.put(field, value);
+        }
+    }
+
+    private static void putDecimal(ObjectNode json, String field, BigDecimal value) {
+        if (value != null) {
+            json.put(field, value);
+        }
+    }
+
+    private static void putLong(ObjectNode json, String field, Long value) {
+        if (value != null) {
+            json.put(field, value);
+        }
+    }
+
+    private static void putInteger(ObjectNode json, String field, Integer value) {
+        if (value != null) {
+            json.put(field, value);
+        }
+    }
+
+    private static void putBoolean(ObjectNode json, String field, Boolean value) {
+        if (value != null) {
+            json.put(field, value);
+        }
+    }
+
+    private static String buildRecordId(TradeRecord record) {
+        String symbol = record.symbol != null ? record.symbol : "UNKNOWN";
+        String eventType = record.eventType != null ? record.eventType : "UNKNOWN";
+        return symbol + "_" + eventType + "_" + record.timestamp;
+    }
+
+    private static String formatDateTime(long timestampMs) {
+        return LocalDateTime.ofInstant(Instant.ofEpochMilli(timestampMs), ZoneId.of("Asia/Shanghai"))
+            .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
     }
 }

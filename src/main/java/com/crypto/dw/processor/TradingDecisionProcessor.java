@@ -457,6 +457,7 @@ public class TradingDecisionProcessor
         // 只有持仓状态的币对才输出状态日志
         if (position != null && position.isOpen()) {
             printStatusLog(symbol, position, tracker, opportunity, now);  // 传入当前套利机会
+            out.collect(buildPositionStatusRecord(symbol, position, tracker, opportunity, now));
         }
         
         // 注册下一个定时器,实现持续定时输出
@@ -811,28 +812,13 @@ public class TradingDecisionProcessor
             return;
         }
         
-        // 记录策略信息
-        if (isStrategyA) {
-            int leverage = marginCache.getLeverage(standardSymbol);
-            logger.info("✅ 策略A检查通过: {} | 杠杆倍数: {}x", opp.symbol, leverage);
-        } else if (isStrategyB) {
-            logger.info("✅ 策略B检查通过: {} | 不需要杠杆", opp.symbol);
-        }
-        
         // ⭐ 第二步：检查全局持仓数量
         try {
             long currentPositionCount = redisManager.getCounter(REDIS_KEY_POSITION_COUNT);
-            logger.info("📊 当前全局持仓数量: {} / {}", currentPositionCount, maxPositions);
             
             if (currentPositionCount >= maxPositions) {
                 logger.debug("⚠️ 全局持仓数量已达上限 ({}/{}),拒绝开仓: {}",
                     currentPositionCount, maxPositions, opp.symbol);
-                
-                // 写入拒绝日志
-                String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
-                String rejectLog = String.format("%s,%s,OPEN,REJECTED,N/A,N/A,N/A,N/A,REJECTED,全局持仓数量已达上限(%d/%d)",
-                    timestamp, opp.symbol, currentPositionCount, maxPositions);
-//                orderDetailWriter.write(rejectLog);
                 return;
             }
             
@@ -987,6 +973,7 @@ public class TradingDecisionProcessor
                 orderDetailWriter.write(swapLog);
                 
                 logger.info("📝 订单已提交: spotOrderId={}, swapOrderId={}", spotOrderId, swapOrderId);
+                out.collect(buildOpenPendingRecord(opp, direction, spotOrderId, swapOrderId, coinAmount));
                 
                 // ⭐ 立即启动异步任务查询订单明细（不依赖 WebSocket 推送）
                 final String finalSymbol = opp.symbol;
@@ -1116,6 +1103,7 @@ public class TradingDecisionProcessor
                 orderDetailWriter.write(swapErrorLog);
                 
                 logger.info("📝 已写入合约失败日志: {}", swapErrorLog);
+                out.collect(buildFailureRecord(opp, direction, "REJECTED", failureReason, spotOrderId, null, coinAmount));
             } else {
                 logger.warn("⚠ 订单提交失败,未创建持仓状态");
                 
@@ -1165,6 +1153,8 @@ public class TradingDecisionProcessor
                 timestamp, opp.symbol, direction != null ? direction : "UNKNOWN", 
                 errorMsg != null ? errorMsg.replace(",", ";") : "未知错误");
             orderDetailWriter.write(errorLog);
+            out.collect(buildFailureRecord(opp, direction != null ? direction : "UNKNOWN", "ERROR",
+                errorMsg != null ? errorMsg : "未知错误", null, null, null));
         }
     }
     
@@ -1191,6 +1181,7 @@ public class TradingDecisionProcessor
             if (spotOrderId != null && swapOrderId != null) {
                 // 订单提交成功,记录日志
                 logger.info("📝 平仓订单已提交: spotOrderId={}, swapOrderId={}", spotOrderId, swapOrderId);
+                out.collect(buildClosePendingRecord(opp, pos, spotOrderId, swapOrderId));
                 
                 // ⭐ 平仓成功,减少全局持仓计数
                 try {
@@ -1263,6 +1254,7 @@ public class TradingDecisionProcessor
                 timestamp, pos.getSymbol(), pos.getDirection(), 
                 e.getMessage().replace(",", ";"));
             orderDetailWriter.write(errorLog);
+            out.collect(buildCloseFailureRecord(opp, pos, e.getMessage()));
         }
     }
 
@@ -1388,6 +1380,226 @@ public class TradingDecisionProcessor
             return fallback;
         }
     }
+
+    /**
+     * 构造持仓状态事件，落到 Doris 宽表中，覆盖控制台状态日志的核心指标。
+     */
+    private TradeRecord buildPositionStatusRecord(
+            String symbol,
+            PositionState position,
+            OpportunityTracker tracker,
+            ArbitrageOpportunity opportunity,
+            long now) {
+        TradeRecord record = buildBaseRecord(opportunity, position, now);
+        record.eventType = "POSITION_STATUS";
+        record.eventStage = "POSITION";
+        record.action = "STATUS";
+        record.positionStatus = position != null && position.isOpen() ? "OPEN" : "CLOSED";
+        record.logSource = "STATUS_LOG";
+        record.symbol = symbol;
+        record.timestamp = now;
+
+        if (position != null) {
+            BigDecimal amountCoin = position.getActualSpotFilledQuantity() != null
+                ? position.getActualSpotFilledQuantity()
+                : position.getAmount();
+            BigDecimal amountPrice = position.getActualSpotPrice() != null
+                ? position.getActualSpotPrice()
+                : position.getEntrySpotPrice();
+            record.amountCoin = amountCoin;
+            record.amountUsdt = multiplyOrNull(amountCoin, amountPrice);
+            record.holdTimeSeconds = (now - position.getOpenTime()) / 1000;
+            record.spotOrderId = position.getSpotOrderId();
+            record.swapOrderId = position.getSwapOrderId();
+            record.entrySpreadRate = position.getEntrySpreadRate();
+            record.actualSpotPrice = position.getActualSpotPrice();
+            record.actualSwapPrice = position.getActualSwapPrice();
+            record.actualSpotFilledQty = position.getActualSpotFilledQuantity();
+            record.actualSwapFilledContracts = position.getActualSwapFilledContracts();
+            record.actualSwapFilledCoin = position.getActualSwapFilledCoin();
+            record.spotCost = position.getSpotCost();
+            record.swapCost = position.getFuturesCost();
+            record.totalCost = position.getTotalCost();
+            record.spotFee = position.getSpotFee();
+            record.swapFee = position.getFuturesFee();
+            record.totalFee = position.getTotalFee();
+            record.totalExpense = position.getTotalExpense();
+            record.unrealizedProfit = position.getUnrealizedProfit();
+        }
+
+        if (opportunity != null) {
+            record.currentSpotPrice = opportunity.spotPrice;
+            record.currentSwapPrice = opportunity.futuresPrice;
+            record.currentSpread = opportunity.spread;
+            record.currentSpreadRate = opportunity.spreadRate;
+        }
+
+        if (position != null) {
+            BigDecimal spotFillCoin = position.getActualSpotFilledQuantity() != null ? position.getActualSpotFilledQuantity() : position.getAmount();
+            BigDecimal swapFillCoin = position.getActualSwapFilledCoin() != null ? position.getActualSwapFilledCoin() : position.getAmount();
+            record.hedgedCoinQty = spotFillCoin != null && swapFillCoin != null ? spotFillCoin.min(swapFillCoin) : null;
+            record.unhedgedCoinQty = spotFillCoin != null && swapFillCoin != null ? spotFillCoin.subtract(swapFillCoin).abs() : null;
+            if (record.unrealizedProfit != null && record.amountUsdt != null
+                && record.amountUsdt.compareTo(BigDecimal.ZERO) > 0) {
+                record.detailedProfitRate = record.unrealizedProfit
+                    .divide(record.amountUsdt, 6, RoundingMode.HALF_UP)
+                    .multiply(new BigDecimal("100"));
+            }
+        }
+
+        if (tracker != null) {
+            record.trackerActive = tracker.isActive();
+            record.trackerSpreadRate = tracker.getSpreadRate();
+            record.trackerDurationSeconds = tracker.getFirstSeenTime() > 0
+                ? (now - tracker.getFirstSeenTime()) / 1000
+                : 0L;
+        } else {
+            record.trackerActive = false;
+        }
+
+        record.statusMessage = String.format(
+            "持仓状态=%s, 方向=%s, 当前价差率=%s, 未实现利润=%s",
+            record.positionStatus,
+            record.direction,
+            record.currentSpreadRate != null ? record.currentSpreadRate.setScale(3, RoundingMode.HALF_UP).toPlainString() : "N/A",
+            record.unrealizedProfit != null ? record.unrealizedProfit.setScale(4, RoundingMode.HALF_UP).toPlainString() : "N/A"
+        );
+        return record;
+    }
+
+    private TradeRecord buildOpenPendingRecord(
+            ArbitrageOpportunity opp,
+            String direction,
+            String spotOrderId,
+            String swapOrderId,
+            BigDecimal coinAmount) {
+        TradeRecord record = buildBaseRecord(opp, null, System.currentTimeMillis());
+        record.eventType = "OPEN_PENDING";
+        record.eventStage = "ORDER";
+        record.action = "OPEN";
+        record.positionStatus = "OPEN";
+        record.direction = direction;
+        record.logSource = "ORDER_DETAIL";
+        record.spotOrderId = spotOrderId;
+        record.swapOrderId = swapOrderId;
+        record.orderSpotPrice = opp.spotPrice;
+        record.orderSwapPrice = opp.futuresPrice;
+        record.amountCoin = coinAmount;
+        record.amountUsdt = multiplyOrNull(coinAmount, opp.spotPrice);
+        record.statusMessage = "开仓订单已提交";
+        return record;
+    }
+
+    private TradeRecord buildClosePendingRecord(
+            ArbitrageOpportunity opp,
+            PositionState pos,
+            String spotOrderId,
+            String swapOrderId) {
+        TradeRecord record = buildBaseRecord(opp, pos, System.currentTimeMillis());
+        record.eventType = "CLOSE_PENDING";
+        record.eventStage = "CLOSE";
+        record.action = "CLOSE";
+        record.positionStatus = "CLOSED";
+        record.spotOrderId = spotOrderId;
+        record.swapOrderId = swapOrderId;
+        record.orderSpotPrice = opp != null ? opp.spotPrice : null;
+        record.orderSwapPrice = opp != null ? opp.futuresPrice : null;
+        record.holdTimeSeconds = pos != null ? (System.currentTimeMillis() - pos.getOpenTime()) / 1000 : null;
+        record.statusMessage = "平仓订单已提交";
+        return record;
+    }
+
+    private TradeRecord buildFailureRecord(
+            ArbitrageOpportunity opp,
+            String direction,
+            String eventType,
+            String errorMessage,
+            String spotOrderId,
+            String swapOrderId,
+            BigDecimal coinAmount) {
+        TradeRecord record = buildBaseRecord(opp, null, System.currentTimeMillis());
+        record.eventType = eventType;
+        record.eventStage = "ORDER";
+        record.action = "OPEN";
+        record.positionStatus = "N/A";
+        record.direction = direction;
+        record.logSource = "ERROR_LOG";
+        record.errorMessage = errorMessage;
+        record.spotOrderId = spotOrderId;
+        record.swapOrderId = swapOrderId;
+        record.amountCoin = coinAmount;
+        record.amountUsdt = multiplyOrNull(coinAmount, opp != null ? opp.spotPrice : null);
+        record.statusMessage = errorMessage;
+        return record;
+    }
+
+    private TradeRecord buildCloseFailureRecord(
+            ArbitrageOpportunity opp,
+            PositionState pos,
+            String errorMessage) {
+        TradeRecord record = buildBaseRecord(opp, pos, System.currentTimeMillis());
+        record.eventType = "ERROR";
+        record.eventStage = "CLOSE";
+        record.action = "CLOSE";
+        record.positionStatus = pos != null && pos.isOpen() ? "OPEN" : "CLOSED";
+        record.logSource = "ERROR_LOG";
+        record.errorMessage = errorMessage;
+        record.statusMessage = errorMessage;
+        return record;
+    }
+
+    private TradeRecord buildBaseRecord(ArbitrageOpportunity opp, PositionState position, long eventTimeMs) {
+        TradeRecord record = new TradeRecord();
+        record.timestamp = eventTimeMs;
+        record.symbol = opp != null ? opp.symbol : (position != null ? position.getSymbol() : null);
+        record.spotInstId = record.symbol != null ? record.symbol + "-USDT" : null;
+        record.swapInstId = record.symbol != null ? record.symbol + "-USDT-SWAP" : null;
+        record.direction = opp != null ? opp.arbitrageDirection : (position != null ? position.getDirection() : null);
+        record.discoverSpotPrice = opp != null ? opp.spotPrice : (position != null ? position.getEntrySpotPrice() : null);
+        record.discoverSwapPrice = opp != null ? opp.futuresPrice : (position != null ? position.getEntrySwapPrice() : null);
+        record.discoverSpread = opp != null ? opp.spread : null;
+        record.discoverSpreadRate = opp != null ? opp.spreadRate : (position != null ? position.getEntrySpreadRate() : null);
+        record.unitProfitEstimate = opp != null ? opp.unitProfitEstimate : null;
+        record.discoverProfitEstimate = opp != null ? opp.profitEstimate : null;
+        record.tradingEnabled = tradingEnabled;
+        record.tradeAmountUsdt = tradeAmount;
+        record.openThreshold = openThreshold;
+        record.closeThreshold = closeThreshold;
+        record.maxHoldTimeMinutes = (int) (maxHoldTimeMs / 60000L);
+        record.maxLossUsdt = maxLossPerTrade;
+        record.leverageConfig = leverage;
+
+        if (position != null) {
+            record.positionStatus = position.isOpen() ? "OPEN" : "CLOSED";
+            record.spotOrderId = position.getSpotOrderId();
+            record.swapOrderId = position.getSwapOrderId();
+            record.entrySpreadRate = position.getEntrySpreadRate();
+            record.actualSpotPrice = position.getActualSpotPrice();
+            record.actualSwapPrice = position.getActualSwapPrice();
+            record.actualSpotFilledQty = position.getActualSpotFilledQuantity();
+            record.actualSwapFilledContracts = position.getActualSwapFilledContracts();
+            record.actualSwapFilledCoin = position.getActualSwapFilledCoin();
+            record.amountCoin = position.getActualSpotFilledQuantity() != null ? position.getActualSpotFilledQuantity() : position.getAmount();
+            BigDecimal amountPrice = position.getActualSpotPrice() != null ? position.getActualSpotPrice() : position.getEntrySpotPrice();
+            record.amountUsdt = multiplyOrNull(record.amountCoin, amountPrice);
+            record.spotCost = position.getSpotCost();
+            record.swapCost = position.getFuturesCost();
+            record.totalCost = position.getTotalCost();
+            record.spotFee = position.getSpotFee();
+            record.swapFee = position.getFuturesFee();
+            record.totalFee = position.getTotalFee();
+            record.totalExpense = position.getTotalExpense();
+            record.unrealizedProfit = position.getUnrealizedProfit();
+        }
+        return record;
+    }
+
+    private BigDecimal multiplyOrNull(BigDecimal left, BigDecimal right) {
+        if (left == null || right == null) {
+            return null;
+        }
+        return left.multiply(right);
+    }
     
     
     /**
@@ -1501,15 +1713,23 @@ public class TradingDecisionProcessor
             
             status.append("📈 持仓状态: 已开仓\n");
             status.append(String.format("  方向: %s\n", position.getDirection()));
-            // 修复：amount 存储的是币的数量，不是 USDT 金额
-            // 计算实际的 USDT 金额 = 币数量 × 现货价格
-            BigDecimal positionUsdtAmount = position.getAmount().multiply(position.getEntrySpotPrice());
+            // 控制台状态报告与 CSV 状态日志统一口径：优先使用真实成交价，否则回退委托价
+            BigDecimal amountPrice = position.getActualSpotPrice() != null
+                ? position.getActualSpotPrice()
+                : position.getEntrySpotPrice();
+            BigDecimal positionUsdtAmount = position.getAmount().multiply(amountPrice);
+            String entrySpotPrice = position.getActualSpotPrice() != null
+                ? formatPrice(position.getActualSpotPrice())
+                : formatPrice(position.getEntrySpotPrice());
+            String entrySwapPrice = position.getActualSwapPrice() != null
+                ? formatPrice(position.getActualSwapPrice())
+                : formatPrice(position.getEntrySwapPrice());
             status.append(String.format("  金额: %s %s (约 %s USDT)\n", 
                 position.getAmount().setScale(4, RoundingMode.HALF_UP), 
                 symbol,
                 positionUsdtAmount.setScale(2, RoundingMode.HALF_UP)));
             status.append(String.format("  开仓价格: 现货=%s, 合约=%s\n", 
-                position.getEntrySpotPrice(), position.getEntrySwapPrice()));
+                entrySpotPrice, entrySwapPrice));
             // 修复：显示实际的开仓价差率（entrySpreadRate 已经是百分比值，不需要再乘以 100）
             if (position.getEntrySpreadRate() != null) {
                 status.append(String.format("  开仓价差率: %s%%\n", 

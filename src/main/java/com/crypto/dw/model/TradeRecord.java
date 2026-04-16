@@ -71,6 +71,126 @@ public class TradeRecord implements Serializable {
      * 时间戳(毫秒)
      */
     public long timestamp;
+
+    /**
+     * 事件类型：DISCOVER/OPEN_PENDING/OPENED/POSITION_STATUS/CLOSE_PENDING/CLOSED/REJECTED/ERROR
+     */
+    public String eventType;
+
+    /**
+     * 事件阶段：DISCOVERY/ORDER/POSITION/CLOSE/SUMMARY
+     */
+    public String eventStage;
+
+    /**
+     * 持仓状态：OPEN/CLOSED/N/A
+     */
+    public String positionStatus;
+
+    /**
+     * 现货/合约产品ID
+     */
+    public String spotInstId;
+    public String swapInstId;
+
+    /**
+     * 发现阶段行情
+     */
+    public BigDecimal discoverSpotPrice;
+    public BigDecimal discoverSwapPrice;
+    public BigDecimal discoverSpread;
+    public BigDecimal discoverSpreadRate;
+    public BigDecimal unitProfitEstimate;
+    public BigDecimal discoverProfitEstimate;
+
+    /**
+     * 配置快照
+     */
+    public Boolean tradingEnabled;
+    public BigDecimal tradeAmountUsdt;
+    public BigDecimal openThreshold;
+    public BigDecimal closeThreshold;
+    public Integer maxHoldTimeMinutes;
+    public BigDecimal maxLossUsdt;
+    public Integer leverageConfig;
+
+    /**
+     * 订单与成交明细
+     */
+    public String spotOrderId;
+    public String swapOrderId;
+    public String spotOrderType;
+    public String swapOrderType;
+    public String spotOrderSide;
+    public String swapOrderSide;
+    public String spotPosSide;
+    public String swapPosSide;
+    public String spotOrderState;
+    public String swapOrderState;
+    public BigDecimal orderSpotPrice;
+    public BigDecimal orderSwapPrice;
+    public BigDecimal entrySpreadRate;
+    public BigDecimal actualSpotPrice;
+    public BigDecimal actualSwapPrice;
+    public BigDecimal actualSpotFilledQty;
+    public BigDecimal actualSwapFilledContracts;
+    public BigDecimal actualSwapFilledCoin;
+    public BigDecimal ctVal;
+
+    /**
+     * 成本与费用
+     */
+    public BigDecimal amountCoin;
+    public BigDecimal amountUsdt;
+    public BigDecimal spotCost;
+    public BigDecimal swapCost;
+    public BigDecimal totalCost;
+    public BigDecimal spotFee;
+    public String spotFeeCcy;
+    public BigDecimal swapFee;
+    public String swapFeeCcy;
+    public BigDecimal totalFee;
+    public BigDecimal totalExpense;
+
+    /**
+     * 持仓状态
+     */
+    public Long holdTimeSeconds;
+    public BigDecimal currentSpotPrice;
+    public BigDecimal currentSwapPrice;
+    public BigDecimal currentSpread;
+    public BigDecimal currentSpreadRate;
+    public BigDecimal hedgedCoinQty;
+    public BigDecimal unhedgedCoinQty;
+    public BigDecimal unrealizedProfit;
+    public BigDecimal detailedProfitRate;
+
+    /**
+     * 跟踪器状态
+     */
+    public Boolean trackerActive;
+    public BigDecimal trackerSpreadRate;
+    public Long trackerDurationSeconds;
+
+    /**
+     * 平仓结果
+     */
+    public BigDecimal closeSpotPrice;
+    public BigDecimal closeSwapPrice;
+    public BigDecimal closeSpotFee;
+    public BigDecimal closeSwapFee;
+    public BigDecimal realizedProfit;
+    public BigDecimal realizedProfitRate;
+
+    /**
+     * 错误与日志摘要
+     */
+    public String errorCode;
+    public String errorMessage;
+    public String statusMessage;
+    public String logSource;
+    public String rawPayloadJson;
+    public String extJson;
     
     @Override
     public String toString() {

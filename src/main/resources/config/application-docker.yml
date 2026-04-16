@@ -65,7 +65,9 @@ kafka:
       dwd: flink-dwd-group                    # DWD 作业
       dws-1min: flink-dws-1min-group          # DWS 1分钟聚合作业
       ads-metrics: flink-ads-metrics-group    # ADS 实时指标作业
-      ads-arbitrage: flink-ads-arbitrage-group  # ADS 套利计算作业
+      ads-arbitrage: flink-ads-arbitrage-group  # 兼容旧配置，建议新作业使用下面两个独立 group
+      ads-arbitrage-spot: flink-ads-arbitrage-spot-group  # ADS 套利现货行情消费
+      ads-arbitrage-swap: flink-ads-arbitrage-swap-group  # ADS 套利合约行情消费
       ads-monitor: flink-ads-monitor-group    # ADS 市场监控作业
 
 # Doris 配置

@@ -65,7 +65,8 @@ kafka:
       dwd: flink-dwd-group                    # DWD 作业
       dws-1min: flink-dws-1min-group          # DWS 1分钟聚合作业
       ads-metrics: flink-ads-metrics-group    # ADS 实时指标作业
-      ads-arbitrage: flink-ads-arbitrage-group  # ADS 套利计算作业
+      ads-arbitrage-spot: flink-ads-arbitrage-spot-group  # ADS 套利计算作业
+      ads-arbitrage-swap: flink-ads-arbitrage-swap-group  # ADS 套利计算作业
       ads-monitor: flink-ads-monitor-group    # ADS 市场监控作业
   
   # JMX 配置
@@ -248,10 +249,6 @@ arbitrage:
   trading:
     enabled: true                   # 是否启用自动交易(默认关闭,测试通过后再开启)
     trade-amount-usdt: 5.5           # 单笔交易金额(USDT),会根据当前价格自动计算币的数量
-                                     # 注意: OKX 现货最小下单金额通常是 5-10 USDT,合约最小交易单位是 1 张(1 个币)
-                                     # 建议: 50 USDT 可以满足大部分币种的最小下单要求
-                                     # 对于高价币种(如 BTC, ETH),需要更大的金额
-    leverage: 1                      # 杠杆倍数(默认1倍,现货和合约统一使用)
     max-positions: 1                 # 最大持仓数量
     open-threshold: 0.005            # 开仓阈值(0.5%)
     close-threshold: 0.002           # 平仓阈值(0.2%)

@@ -84,8 +84,7 @@ public class KafkaSourceFactory {
      */
     public KafkaSource<String> createKafkaSourceForJob(String jobType) {
         String topic = config.getString("kafka.topic.crypto-ticker-spot");
-        String groupIdKey = "kafka.consumer.group-id." + jobType;
-        String groupId = config.getString(groupIdKey, "flink-" + jobType + "-group");
+        String groupId = resolveGroupId(jobType);
         String startupMode = config.getString("kafka.consumer.startup-mode", "latest");
         
         return createKafkaSource(topic, groupId, startupMode);
@@ -120,8 +119,7 @@ public class KafkaSourceFactory {
      * @return 配置好的 KafkaSource
      */
     public KafkaSource<String> createKafkaSourceForJob(String jobType, String topic) {
-        String groupIdKey = "kafka.consumer.group-id." + jobType;
-        String groupId = config.getString(groupIdKey, "flink-" + jobType + "-group");
+        String groupId = resolveGroupId(jobType);
         String startupMode = config.getString("kafka.consumer.startup-mode", "latest");
         
         // 使用 topic 名称作为 client.id 后缀,避免同一作业的多个 Source 冲突
@@ -232,7 +230,7 @@ public class KafkaSourceFactory {
         switch (startupMode.toLowerCase()) {
             case "latest":
                 offsetsInitializer = OffsetsInitializer.latest();
-                logger.info("  Startup Mode: latest（从最新数据开始）");
+                logger.info("  Startup Mode: latest（仅首次启动且无恢复状态时从最新数据开始）");
                 break;
             case "committed":
                 // 使用 committedOffsets 并指定回退策略
@@ -248,6 +246,8 @@ public class KafkaSourceFactory {
                 logger.info("  Startup Mode: earliest（从最早数据开始）");
                 break;
         }
+
+        logger.info("  Offset Init 说明: 如果作业从 checkpoint/savepoint 恢复，Kafka Source 会优先使用恢复状态中的 offset，startup-mode 不会重新生效");
         
         logger.info("==========================================");
         
@@ -269,5 +269,22 @@ public class KafkaSourceFactory {
             .setProperty("auto.offset.reset", "latest")  // offset 重置策略
             .setProperty("auto.register.schemas", "false")  // 禁用 schema 自动注册
             .build();
+    }
+
+    /**
+     * 解析作业对应的 consumer group。
+     * 优先读取精确配置键，未配置时回退到约定默认值，并打印明确日志，避免误判实际使用的 group。
+     */
+    private String resolveGroupId(String jobType) {
+        String groupIdKey = "kafka.consumer.group-id." + jobType;
+        String configuredGroupId = config.getString(groupIdKey);
+        if (configuredGroupId != null && !configuredGroupId.trim().isEmpty()) {
+            logger.info("Kafka Consumer Group 命中配置: {} = {}", groupIdKey, configuredGroupId);
+            return configuredGroupId;
+        }
+
+        String fallbackGroupId = "flink-" + jobType + "-group";
+        logger.warn("Kafka Consumer Group 未配置: {}，已回退默认值: {}", groupIdKey, fallbackGroupId);
+        return fallbackGroupId;
     }
 }

@@ -1,6 +1,9 @@
 # Doris Docker Compose 配置
 # 使用桥接网络 + 端口映射,确保 Flink 能连接
 #
+# Java UDF：宿主机目录 ./doris-udf 挂载为容器内 /opt/doris/udf（CREATE FUNCTION 的 file=file:///opt/doris/udf/xxx.jar）。
+# 将 JAR 放入本仓库 doris-udf/ 后重启 FE/BE 或 docker compose up -d；与 quant-data-collect 的 mvn -Pdoris-udf 产物配合使用。
+#
 # 镜像：apache/doris:fe-3.0.8 / be-3.0.8（Docker Hub 含 linux/arm64 + amd64）。未写 platform，Apple Silicon 上默认拉 arm64，无需 Rosetta/Colima。
 # 若从旧版/RC 升 3.0.8 后 FE/BE 起不来，多为元数据不兼容，可备份后清空 doris-fe-data / doris-be-data 对应 volume 再试。
 # x86  Linux 或需强制 amd64 时：可取消注释各服务下的 platform 行。
@@ -34,8 +37,9 @@ services:
       - PRIORITY_NETWORKS=172.25.0.0/16  # 指定使用的网络
       - TZ=Asia/Shanghai  # 设置时区为中国时区
     volumes:
-      - doris-fe-data:/opt/apache-doris/fe/doris-meta
-      - doris-fe-log:/opt/apache-doris/fe/log
+      - ./doris/doris-fe-data:/opt/apache-doris/fe/doris-meta
+      - ./doris/doris-fe-log:/opt/apache-doris/fe/log
+      - ./doris/doris-udf:/opt/doris/udf
     networks:
       doris-net:
         ipv4_address: 172.25.0.2
@@ -58,8 +62,8 @@ services:
         soft: 65535
         hard: 65535
     # BE 镜像 be.conf 中 JDK17 堆默认可为 2G；cgroup 略大于堆，覆盖 C++ 进程与 page cache
-    mem_limit: 3g
-    memswap_limit: 3g
+    mem_limit: 4g
+    memswap_limit: 4g
     ports:
       - "8040:8040"   # BE HTTP 端口
       - "9050:9050"   # BE Heartbeat 端口
@@ -74,8 +78,9 @@ services:
       - JAVA_HOME=/usr/lib/jvm/java
       - TZ=Asia/Shanghai  # 设置时区为中国时区
     volumes:
-      - doris-be-data:/opt/apache-doris/be/storage
-      - doris-be-log:/opt/apache-doris/be/log
+      - ./doris/doris-be-data:/opt/apache-doris/be/storage
+      - ./doris/doris-be-log:/opt/apache-doris/be/log
+      - ./doris/doris-udf:/opt/doris/udf
     networks:
       doris-net:
         ipv4_address: 172.25.0.3

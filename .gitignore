@@ -42,4 +42,6 @@ test/*.log
 test/test-webui.log
 superset
 .history
+/doris-udf/
+/doris/
 /rocksdb-dir/

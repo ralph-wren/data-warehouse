@@ -1,0 +1,210 @@
+# DolphinScheduler Docker Compose 配置
+# 说明:
+# 1. DolphinScheduler 自己使用独立的 dolphinscheduler-net 进行内部通信
+# 2. Worker / Master / API 额外挂到现有 Flink / Doris / Kafka 网络，便于编排现有组件
+# 3. 采用 PostgreSQL + ZooKeeper，保持和官方 Docker 部署方式一致
+# 4. 默认按本地轻量模式配置，避免与 Doris / Flink 同机运行时内存压力过大
+
+services:
+  dolphinscheduler-postgresql:
+    image: bitnamilegacy/postgresql:15.2.0-debian-11-r9
+    container_name: dolphinscheduler-postgresql
+    hostname: dolphinscheduler-postgresql
+    ports:
+      - "15432:5432"
+    environment:
+      POSTGRESQL_USERNAME: root
+      POSTGRESQL_PASSWORD: root
+      POSTGRESQL_DATABASE: dolphinscheduler
+      TZ: Asia/Shanghai
+    volumes:
+      - ./volumes/dolphinscheduler/postgresql:/bitnami/postgresql
+    healthcheck:
+      test: ["CMD", "bash", "-c", "cat < /dev/null > /dev/tcp/127.0.0.1/5432"]
+      interval: 5s
+      timeout: 10s
+      retries: 60
+    networks:
+      - dolphinscheduler-net
+    mem_limit: 768m
+    restart: unless-stopped
+
+  dolphinscheduler-zookeeper:
+    image: bitnamilegacy/zookeeper:3.7.1-debian-11-r99
+    container_name: dolphinscheduler-zookeeper
+    hostname: dolphinscheduler-zookeeper
+    ports:
+      - "12181:2181"
+    environment:
+      ALLOW_ANONYMOUS_LOGIN: "yes"
+      ZOO_4LW_COMMANDS_WHITELIST: srvr,ruok,wchs,cons
+      TZ: Asia/Shanghai
+    volumes:
+      - ./volumes/dolphinscheduler/zookeeper:/bitnami/zookeeper
+    healthcheck:
+      test: ["CMD", "bash", "-c", "cat < /dev/null > /dev/tcp/127.0.0.1/2181"]
+      interval: 5s
+      timeout: 10s
+      retries: 60
+    networks:
+      - dolphinscheduler-net
+    mem_limit: 512m
+    restart: unless-stopped
+
+  dolphinscheduler-schema-initializer:
+    image: apache/dolphinscheduler-tools:3.4.1
+    container_name: dolphinscheduler-schema-initializer
+    hostname: dolphinscheduler-schema-initializer
+    env_file:
+      - ./config/dolphinscheduler/dolphinscheduler.env
+    command: [ "tools/bin/upgrade-schema.sh" ]
+    depends_on:
+      dolphinscheduler-postgresql:
+        condition: service_healthy
+    volumes:
+      - ./volumes/dolphinscheduler/logs:/opt/dolphinscheduler/logs
+      - ./volumes/dolphinscheduler/shared:/opt/soft
+      - ./volumes/dolphinscheduler/resources:/dolphinscheduler
+    networks:
+      - dolphinscheduler-net
+
+  dolphinscheduler-api:
+    image: apache/dolphinscheduler-api:3.4.1
+    container_name: dolphinscheduler-api
+    hostname: dolphinscheduler-api
+    ports:
+      - "12345:12345"
+      - "25333:25333"
+    env_file:
+      - ./config/dolphinscheduler/dolphinscheduler.env
+    environment:
+      # 轻量模式显式限制堆大小，避免镜像默认参数过大
+      JAVA_OPTS: "-server -Xms512m -Xmx512m -Xmn256m -XX:+IgnoreUnrecognizedVMOptions -XX:+PrintGCDateStamps -XX:+PrintGCDetails -Xloggc:gc-%t.log -XX:ErrorFile=java_error-%p.log -XX:-OmitStackTraceInFastThrow -XX:+ExitOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=dump.hprof"
+    depends_on:
+      dolphinscheduler-zookeeper:
+        condition: service_healthy
+    volumes:
+      - ./volumes/dolphinscheduler/logs:/opt/dolphinscheduler/logs
+      - ./volumes/dolphinscheduler/shared:/opt/soft
+      - ./volumes/dolphinscheduler/resources:/dolphinscheduler
+      - ./:/opt/data-warehouse
+      # 挂载 datasource 插件，修复默认镜像缺少 MySQL / Doris 数据源实现问题
+      - ./volumes/dolphinscheduler/plugins/dolphinscheduler-datasource-mysql-3.4.1.jar:/opt/dolphinscheduler/api-server/libs/dolphinscheduler-datasource-mysql-3.4.1.jar:ro
+      - ./volumes/dolphinscheduler/plugins/dolphinscheduler-datasource-doris-3.4.1.jar:/opt/dolphinscheduler/api-server/libs/dolphinscheduler-datasource-doris-3.4.1.jar:ro
+      - ./volumes/dolphinscheduler/plugins/dolphinscheduler-task-sql-3.4.1.jar:/opt/dolphinscheduler/api-server/libs/dolphinscheduler-task-sql-3.4.1.jar:ro
+      - ./volumes/dolphinscheduler/plugins/mysql-connector-j-8.3.0.jar:/opt/dolphinscheduler/api-server/libs/mysql-connector-j-8.3.0.jar:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:12345/dolphinscheduler/actuator/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 10
+    networks:
+      - dolphinscheduler-net
+      - doris-net
+      - flink-net
+      - default
+    mem_limit: 1024m
+    restart: unless-stopped
+
+  dolphinscheduler-alert:
+    image: apache/dolphinscheduler-alert-server:3.4.1
+    container_name: dolphinscheduler-alert
+    hostname: dolphinscheduler-alert
+    env_file:
+      - ./config/dolphinscheduler/dolphinscheduler.env
+    depends_on:
+      dolphinscheduler-zookeeper:
+        condition: service_healthy
+    volumes:
+      - ./volumes/dolphinscheduler/logs:/opt/dolphinscheduler/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:50053/actuator/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 10
+    networks:
+      - dolphinscheduler-net
+    profiles:
+      - full
+    mem_limit: 512m
+    restart: unless-stopped
+
+  dolphinscheduler-master:
+    image: apache/dolphinscheduler-master:3.4.1
+    container_name: dolphinscheduler-master
+    hostname: dolphinscheduler-master
+    env_file:
+      - ./config/dolphinscheduler/dolphinscheduler.env
+    environment:
+      JAVA_OPTS: "-server -Xms512m -Xmx768m -Xmn256m -XX:+IgnoreUnrecognizedVMOptions -XX:+PrintGCDateStamps -XX:+PrintGCDetails -Xloggc:gc-%t.log -XX:ErrorFile=java_error-%p.log -XX:-OmitStackTraceInFastThrow -XX:+ExitOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=dump.hprof"
+    depends_on:
+      dolphinscheduler-zookeeper:
+        condition: service_healthy
+    volumes:
+      - ./volumes/dolphinscheduler/logs:/opt/dolphinscheduler/logs
+      - ./volumes/dolphinscheduler/shared:/opt/soft
+      - ./volumes/dolphinscheduler/resources:/dolphinscheduler
+      - ./:/opt/data-warehouse
+      - ./volumes/dolphinscheduler/plugins/dolphinscheduler-datasource-mysql-3.4.1.jar:/opt/dolphinscheduler/master-server/libs/dolphinscheduler-datasource-mysql-3.4.1.jar:ro
+      - ./volumes/dolphinscheduler/plugins/dolphinscheduler-datasource-doris-3.4.1.jar:/opt/dolphinscheduler/master-server/libs/dolphinscheduler-datasource-doris-3.4.1.jar:ro
+      - ./volumes/dolphinscheduler/plugins/dolphinscheduler-task-sql-3.4.1.jar:/opt/dolphinscheduler/master-server/libs/dolphinscheduler-task-sql-3.4.1.jar:ro
+      - ./volumes/dolphinscheduler/plugins/mysql-connector-j-8.3.0.jar:/opt/dolphinscheduler/master-server/libs/mysql-connector-j-8.3.0.jar:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5679/actuator/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 10
+    networks:
+      - dolphinscheduler-net
+      - doris-net
+      - flink-net
+      - default
+    mem_limit: 1024m
+    restart: unless-stopped
+
+  dolphinscheduler-worker:
+    image: apache/dolphinscheduler-worker:3.4.1
+    container_name: dolphinscheduler-worker
+    hostname: dolphinscheduler-worker
+    env_file:
+      - ./config/dolphinscheduler/dolphinscheduler.env
+    environment:
+      JAVA_OPTS: "-server -Xms512m -Xmx768m -Xmn256m -XX:+IgnoreUnrecognizedVMOptions -XX:+PrintGCDateStamps -XX:+PrintGCDetails -Xloggc:gc-%t.log -XX:ErrorFile=java_error-%p.log -XX:-OmitStackTraceInFastThrow -XX:+ExitOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=dump.hprof"
+    depends_on:
+      dolphinscheduler-zookeeper:
+        condition: service_healthy
+    volumes:
+      - ./volumes/dolphinscheduler/worker-data:/tmp/dolphinscheduler
+      - ./volumes/dolphinscheduler/logs:/opt/dolphinscheduler/logs
+      - ./volumes/dolphinscheduler/shared:/opt/soft
+      - ./volumes/dolphinscheduler/resources:/dolphinscheduler
+      - ./:/opt/data-warehouse
+      - ./volumes/dolphinscheduler/plugins/dolphinscheduler-datasource-mysql-3.4.1.jar:/opt/dolphinscheduler/worker-server/libs/dolphinscheduler-datasource-mysql-3.4.1.jar:ro
+      - ./volumes/dolphinscheduler/plugins/dolphinscheduler-datasource-doris-3.4.1.jar:/opt/dolphinscheduler/worker-server/libs/dolphinscheduler-datasource-doris-3.4.1.jar:ro
+      - ./volumes/dolphinscheduler/plugins/dolphinscheduler-task-sql-3.4.1.jar:/opt/dolphinscheduler/worker-server/libs/dolphinscheduler-task-sql-3.4.1.jar:ro
+      - ./volumes/dolphinscheduler/plugins/mysql-connector-j-8.3.0.jar:/opt/dolphinscheduler/worker-server/libs/mysql-connector-j-8.3.0.jar:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:1235/actuator/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 10
+    networks:
+      - dolphinscheduler-net
+      - doris-net
+      - flink-net
+      - default
+    mem_limit: 1536m
+    restart: unless-stopped
+
+networks:
+  dolphinscheduler-net:
+    driver: bridge
+  doris-net:
+    external: true
+    name: data-warehouse_doris-net
+  flink-net:
+    external: true
+    name: data-warehouse_flink-net
+  default:
+    external: true
+    name: data-warehouse_default

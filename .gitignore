@@ -45,3 +45,7 @@ superset
 /doris-udf/
 /doris/
 /rocksdb-dir/
+/dolphinscheduler/
+/volumes/*
+!/volumes/monitoring/
+!/volumes/monitoring/**

@@ -37,9 +37,9 @@ services:
       - PRIORITY_NETWORKS=172.25.0.0/16  # 指定使用的网络
       - TZ=Asia/Shanghai  # 设置时区为中国时区
     volumes:
-      - ./doris/doris-fe-data:/opt/apache-doris/fe/doris-meta
-      - ./doris/doris-fe-log:/opt/apache-doris/fe/log
-      - ./doris/doris-udf:/opt/doris/udf
+      - ./volumes/doris/doris-fe-data:/opt/apache-doris/fe/doris-meta
+      - ./volumes/doris/doris-fe-log:/opt/apache-doris/fe/log
+      - ./volumes/doris/doris-udf:/opt/doris/udf
     networks:
       doris-net:
         ipv4_address: 172.25.0.2
@@ -78,9 +78,9 @@ services:
       - JAVA_HOME=/usr/lib/jvm/java
       - TZ=Asia/Shanghai  # 设置时区为中国时区
     volumes:
-      - ./doris/doris-be-data:/opt/apache-doris/be/storage
-      - ./doris/doris-be-log:/opt/apache-doris/be/log
-      - ./doris/doris-udf:/opt/doris/udf
+      - ./volumes/doris/doris-be-data:/opt/apache-doris/be/storage
+      - ./volumes/doris/doris-be-log:/opt/apache-doris/be/log
+      - ./volumes/doris/doris-udf:/opt/doris/udf
     networks:
       doris-net:
         ipv4_address: 172.25.0.3

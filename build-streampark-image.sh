@@ -1,15 +1,15 @@
 #!/bin/bash
-# 构建 StreamPark 自定义镜像脚本
-# 包含 Java 11 支持
+# StreamPark 镜像准备脚本
+# 当前默认使用官方 Java 8 镜像，无需本地自定义构建
 
 set -e
 
 echo "=========================================="
-echo "构建 StreamPark 自定义镜像"
+echo "准备 StreamPark 官方镜像"
 echo "=========================================="
 
-# 镜像名称和标签
-IMAGE_NAME="streampark-java11"
+# 官方镜像名称和标签
+IMAGE_NAME="apache/streampark"
 IMAGE_TAG="v2.1.5"
 FULL_IMAGE_NAME="${IMAGE_NAME}:${IMAGE_TAG}"
 
@@ -20,29 +20,18 @@ echo "  标签: ${IMAGE_TAG}"
 echo "  完整名称: ${FULL_IMAGE_NAME}"
 echo ""
 
-# 检查 Dockerfile 是否存在
-if [ ! -f "Dockerfile.streampark" ]; then
-    echo "错误: Dockerfile.streampark 不存在"
-    exit 1
-fi
-
-echo "开始构建镜像..."
+echo "开始拉取官方镜像..."
 echo ""
 
-# 构建镜像
-docker build \
-    -f Dockerfile.streampark \
-    -t ${FULL_IMAGE_NAME} \
-    --progress=plain \
-    .
+docker pull ${FULL_IMAGE_NAME}
 
 echo ""
 echo "=========================================="
-echo "镜像构建完成！"
+echo "镜像准备完成！"
 echo "=========================================="
 echo ""
 echo "镜像信息:"
-docker images ${IMAGE_NAME}
+docker images ${IMAGE_NAME} --format 'table {{.Repository}}\t{{.Tag}}\t{{.Size}}'
 
 echo ""
 echo "验证 Java 版本:"
@@ -50,10 +39,10 @@ docker run --rm ${FULL_IMAGE_NAME} java -version
 
 echo ""
 echo "=========================================="
-echo "构建成功！"
+echo "镜像可用！"
 echo "=========================================="
 echo ""
 echo "下一步:"
-echo "1. 更新 docker-compose-streampark.yml 使用新镜像: ${FULL_IMAGE_NAME}"
-echo "2. 启动 StreamPark: docker-compose -f docker-compose-streampark.yml up -d"
+echo "1. 启动 StreamPark: bash manage-streampark.sh start"
+echo "2. 访问 Web UI: http://localhost:10000"
 echo ""

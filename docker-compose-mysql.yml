@@ -1,0 +1,34 @@
+# StreamPark 元数据库 MySQL Docker Compose 配置
+
+services:
+  streampark-mysql:
+    image: mysql:8.0.36
+    container_name: mysql
+    hostname: streampark-mysql
+    ports:
+      - "3306:3306"
+    environment:
+      TZ: Asia/Shanghai
+      MYSQL_ROOT_PASSWORD: Hg19951030
+      MYSQL_DATABASE: streampark
+    command:
+      - --default-authentication-plugin=mysql_native_password
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_general_ci
+      - --max_connections=300
+    volumes:
+      - ./volumes/mysql/data:/var/lib/mysql
+      - ./config/streampark/mysql/init:/docker-entrypoint-initdb.d:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-pHg19951030"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    networks:
+      - streampark-net
+
+networks:
+  streampark-net:
+    name: data-warehouse_streampark-net
+    driver: bridge

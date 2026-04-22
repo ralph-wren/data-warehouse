@@ -63,14 +63,14 @@ echo "3. 检查 Grafana 面板"
 echo "----------------------------------------"
 
 # 检查 Kafka 面板
-if [ -f "monitoring/grafana/dashboards/kafka-monitoring.json" ]; then
+if [ -f "volumes/monitoring/grafana/dashboards/kafka-monitoring.json" ]; then
     echo -e "${GREEN}✓${NC} Kafka 监控面板文件存在"
 else
     echo -e "${RED}✗${NC} Kafka 监控面板文件不存在"
 fi
 
 # 检查 Doris 面板
-if [ -f "monitoring/grafana/dashboards/doris-monitoring.json" ]; then
+if [ -f "volumes/monitoring/grafana/dashboards/doris-monitoring.json" ]; then
     echo -e "${GREEN}✓${NC} Doris 监控面板文件存在"
 else
     echo -e "${RED}✗${NC} Doris 监控面板文件不存在"

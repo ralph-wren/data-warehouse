@@ -68,12 +68,12 @@ echo ""
 echo "4. 导入监控面板..."
 
 # 导入 Kafka 面板
-if [ -f "monitoring/grafana/dashboards/kafka-monitoring.json" ]; then
+if [ -f "volumes/monitoring/grafana/dashboards/kafka-monitoring.json" ]; then
     echo "  导入 Kafka 监控面板..."
     KAFKA_RESULT=$(curl -s -u ${GRAFANA_USER}:${GRAFANA_PASS} \
         -X POST ${GRAFANA_URL}/api/dashboards/db \
         -H "Content-Type: application/json" \
-        -d @monitoring/grafana/dashboards/kafka-monitoring.json 2>&1)
+        -d @volumes/monitoring/grafana/dashboards/kafka-monitoring.json 2>&1)
     
     if echo "$KAFKA_RESULT" | grep -q "\"status\":\"success\""; then
         echo "  ✓ Kafka 面板导入成功"
@@ -88,12 +88,12 @@ else
 fi
 
 # 导入 Doris 面板
-if [ -f "monitoring/grafana/dashboards/doris-monitoring.json" ]; then
+if [ -f "volumes/monitoring/grafana/dashboards/doris-monitoring.json" ]; then
     echo "  导入 Doris 监控面板..."
     DORIS_RESULT=$(curl -s -u ${GRAFANA_USER}:${GRAFANA_PASS} \
         -X POST ${GRAFANA_URL}/api/dashboards/db \
         -H "Content-Type: application/json" \
-        -d @monitoring/grafana/dashboards/doris-monitoring.json 2>&1)
+        -d @volumes/monitoring/grafana/dashboards/doris-monitoring.json 2>&1)
     
     if echo "$DORIS_RESULT" | grep -q "\"status\":\"success\""; then
         echo "  ✓ Doris 面板导入成功"

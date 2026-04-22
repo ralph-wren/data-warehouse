@@ -1,11 +1,18 @@
 # StreamPark Docker Compose 配置
 # 用于管理和监控 Flink 作业
-
-version: '3.8'
+#
+# Docker 镜像仓库（Registry）不在本 compose 里配置。
+# StreamPark k8s application 构建第 7 步「Push docker image」使用的地址/命名空间/账号来自：
+#   - Web：设置 → 系统设置 → Docker Register Address / User / Password / Docker namespace
+#   - 数据库：MySQL 表 t_setting，键 docker.register.address | user | password | namespace
+#     （初始化见 config/streampark/mysql/init/02-streampark-data.sql，默认值为 null，需在界面填写或执行示例 SQL）
+# 本机 registry:2 无认证：地址填与宿主机映射一致的主机:端口（如 127.0.0.1:5001），namespace 如 qdc，用户名密码可留空。
+# 未配置或误指向 hub.docker.io 时，push 常见 insufficient_scope；示例 SQL 见 config/streampark/mysql/examples/docker-registry-local.example.sql
+# 兄弟仓库排查文档：../quant-data-collect/docs/202604211400-streampark-docker-push-insufficient_scope.md
 
 services:
   streampark:
-    image: streampark-java11:v2.1.5  # 自定义镜像，包含 Java 11
+    image: apache/streampark:v2.1.5  # 官方镜像，内置 Java 8
     container_name: streampark
     hostname: streampark
     ports:
@@ -16,9 +23,9 @@ services:
       - LANG=C.UTF-8
       - LC_ALL=C.UTF-8
       - JAVA_TOOL_OPTIONS=-Dfile.encoding=UTF-8
-      # MySQL 数据库配置 - 使用环境变量配置数据库连接
+      # MySQL 数据库配置 - 连接 Docker MySQL 服务
       - SPRING_DATASOURCE_DIALECT=mysql
-      - SPRING_DATASOURCE_URL=jdbc:mysql://host.docker.internal:3306/streampark?useUnicode=true&characterEncoding=UTF-8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+      - SPRING_DATASOURCE_URL=jdbc:mysql://streampark-mysql:3306/streampark?useUnicode=true&characterEncoding=UTF-8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
       - SPRING_DATASOURCE_USERNAME=root
       - SPRING_DATASOURCE_PASSWORD=Hg19951030
     volumes:
@@ -27,9 +34,9 @@ services:
       # 挂载 hosts 文件（只读）
       - /etc/hosts:/etc/hosts:ro
       # StreamPark 数据持久化（使用本地目录）
-      - ./streampark-data:/streampark/data
+      - ./volumes/streampark/data:/streampark/data
       # 挂载 Flink 到容器（只读）
-      - E:\DataFiles\flink-1.17.0:/opt/flink:ro
+      - ./volumes/streampark/flink/flink-1.17.2:/opt/flink/flink-1.17.2:ro
       # 挂载 Maven 本地仓库 - 避免重复下载依赖，节省时间和带宽
       - ~/.m2/repository:/root/.m2/repository
       # 挂载自定义配置文件 - 使用 MySQL（Doris）作为元数据存储
@@ -37,7 +44,10 @@ services:
       # 挂载 MySQL 驱动到容器 lib 目录 - 支持 MySQL/Doris 连接
       - ~/.m2/repository/com/mysql/mysql-connector-j/8.3.0/mysql-connector-j-8.3.0.jar:/streampark/lib/mysql-connector-j-8.3.0.jar:ro
       # 如果有 Kubernetes 配置，可以挂载
-      # - ~/.kube:/root/.kube:ro
+      - ~/.kube:/root/.kube:ro
+      - ~/.ssh/id_ed25519:/root/.ssh/id_ed25519:ro
+      - ~/.ssh/id_ed25519.pub:/root/.ssh/id_ed25519.pub:ro
+      - ~/.ssh/known_hosts:/root/.ssh/known_hosts:ro
     privileged: true
     restart: unless-stopped
     networks:
@@ -53,6 +63,7 @@ services:
 
 networks:
   streampark-net:
+    name: data-warehouse_streampark-net
     driver: bridge
   doris-net:
     external: true

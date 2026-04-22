@@ -2,7 +2,8 @@
 # 生成增强版 Grafana Flink 监控面板
 # 包含更多常用指标
 
-cat > monitoring/grafana/dashboards/flink-monitoring.json << 'EOF'
+mkdir -p volumes/monitoring/grafana/dashboards
+cat > volumes/monitoring/grafana/dashboards/flink-monitoring.json << 'EOF'
 {
   "annotations": {
     "list": [

@@ -3,7 +3,7 @@
 # 在所有查询中添加过滤条件
 
 echo "备份当前配置..."
-cp monitoring/grafana/dashboards/flink-monitoring.json monitoring/grafana/dashboards/flink-monitoring.json.backup2
+cp volumes/monitoring/grafana/dashboards/flink-monitoring.json volumes/monitoring/grafana/dashboards/flink-monitoring.json.backup2
 
 echo "更新配置文件，添加活跃 job 过滤..."
 
@@ -34,19 +34,19 @@ s/"expr": "rate(flink_taskmanager_job_task_numBytesIn\[1m\])"/"expr": "rate(flin
 
 # 网络字节流出 - 添加 job_id 过滤
 s/"expr": "rate(flink_taskmanager_job_task_numBytesOut\[1m\])"/"expr": "rate(flink_taskmanager_job_task_numBytesOut{job_id!=\"\"}[1m])"/g
-' monitoring/grafana/dashboards/flink-monitoring.json
+' volumes/monitoring/grafana/dashboards/flink-monitoring.json
 
 # 删除临时文件
-rm -f monitoring/grafana/dashboards/flink-monitoring.json.tmp
+rm -f volumes/monitoring/grafana/dashboards/flink-monitoring.json.tmp
 
 echo "配置更新完成！"
 echo ""
 echo "验证 JSON 格式..."
-if python -m json.tool monitoring/grafana/dashboards/flink-monitoring.json > /dev/null 2>&1; then
+if python -m json.tool volumes/monitoring/grafana/dashboards/flink-monitoring.json > /dev/null 2>&1; then
     echo "✓ JSON 格式正确"
 else
     echo "✗ JSON 格式错误，恢复备份..."
-    cp monitoring/grafana/dashboards/flink-monitoring.json.backup2 monitoring/grafana/dashboards/flink-monitoring.json
+    cp volumes/monitoring/grafana/dashboards/flink-monitoring.json.backup2 volumes/monitoring/grafana/dashboards/flink-monitoring.json
     exit 1
 fi
 

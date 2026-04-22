@@ -36,7 +36,7 @@ services:
       # 指定自定义配置文件
       - SUPERSET_CONFIG_PATH=/app/superset_config.py
     volumes:
-      - ./superset:/app/superset_home
+      - ./volumes/superset/home:/app/superset_home
       - ./superset_config.py:/app/superset_config.py:ro
     networks:
       - superset-net

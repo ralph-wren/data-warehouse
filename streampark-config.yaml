@@ -2,6 +2,10 @@
 # StreamPark 自定义配置文件
 # 使用 MySQL（Doris）作为元数据存储
 #
+# Docker 镜像仓库（构建流水线 push 目标）不在本 YAML 配置；请在 Web「系统设置」填写，
+# 或更新 MySQL t_setting（docker.register.*），示例见：
+#   config/streampark/mysql/examples/docker-registry-local.example.sql
+#
 
 logging:
   level:
@@ -20,15 +24,14 @@ server:
       io: 16
       worker: 256
 
-# 系统数据库配置 - 使用本地 MySQL
+# 系统数据库配置 - 使用 Docker MySQL
 datasource:
   dialect: mysql  # 使用 MySQL 方言
   # MySQL 连接配置
   username: root
   password: "Hg19951030"  # MySQL 密码
-  # JDBC URL - 连接到本地 MySQL
-  # 注意：使用 host.docker.internal 访问宿主机的 MySQL（Windows/Mac）
-  url: jdbc:mysql://host.docker.internal:3306/streampark?useUnicode=true&characterEncoding=UTF-8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+  # JDBC URL - 连接到 Docker 网络中的 MySQL 服务
+  url: jdbc:mysql://streampark-mysql:3306/streampark?useUnicode=true&characterEncoding=UTF-8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
 
 streampark:
   workspace:

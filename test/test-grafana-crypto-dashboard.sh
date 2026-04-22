@@ -41,9 +41,9 @@ echo ""
 
 # 5. 验证数据源配置文件
 echo "5. 验证数据源配置文件..."
-if [ -f "monitoring/grafana/provisioning/datasources/doris-mysql.yml" ]; then
+if [ -f "volumes/monitoring/grafana/provisioning/datasources/doris-mysql.yml" ]; then
     echo "✅ Doris 数据源配置文件存在"
-    cat monitoring/grafana/provisioning/datasources/doris-mysql.yml
+    cat volumes/monitoring/grafana/provisioning/datasources/doris-mysql.yml
 else
     echo "❌ Doris 数据源配置文件不存在"
     exit 1
@@ -52,9 +52,9 @@ echo ""
 
 # 6. 验证面板配置文件
 echo "6. 验证面板配置文件..."
-if [ -f "monitoring/grafana/dashboards/crypto-data-dashboard.json" ]; then
+if [ -f "volumes/monitoring/grafana/dashboards/crypto-data-dashboard.json" ]; then
     echo "✅ 加密货币数据面板配置文件存在"
-    echo "面板标题: $(cat monitoring/grafana/dashboards/crypto-data-dashboard.json | grep -o '"title":"[^"]*"' | head -1)"
+    echo "面板标题: $(cat volumes/monitoring/grafana/dashboards/crypto-data-dashboard.json | grep -o '"title":"[^"]*"' | head -1)"
 else
     echo "❌ 加密货币数据面板配置文件不存在"
     exit 1

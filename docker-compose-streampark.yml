@@ -1,5 +1,6 @@
-# StreamPark Docker Compose 配置
-# 用于管理和监控 Flink 作业
+# StreamPark Docker Compose 配置（本地兜底方案）
+# 主流程已迁移为 Kubernetes 部署：请优先使用 manage-streampark.sh（K8s 模式）
+# 本文件仅保留“纯 Docker 本地调试”场景。
 #
 # Docker 镜像仓库（Registry）不在本 compose 里配置。
 # StreamPark k8s application 构建第 7 步「Push docker image」使用的地址/命名空间/账号来自：
@@ -9,6 +10,7 @@
 # 本机 registry:2 无认证：地址填与宿主机映射一致的主机:端口（如 127.0.0.1:5001），namespace 如 qdc，用户名密码可留空。
 # 未配置或误指向 hub.docker.io 时，push 常见 insufficient_scope；示例 SQL 见 config/streampark/mysql/examples/docker-registry-local.example.sql
 # 兄弟仓库排查文档：../quant-data-collect/docs/202604211400-streampark-docker-push-insufficient_scope.md
+# 容器内 Flink 访问本机 Kubernetes API（127.0.0.1 误区、socat、kubeconfig 挂载）：../quant-data-collect/docs/202604221900-streampark-docker-kubernetes-api连接排查-socat.md
 
 services:
   streampark:
@@ -28,6 +30,8 @@ services:
       - SPRING_DATASOURCE_URL=jdbc:mysql://streampark-mysql:3306/streampark?useUnicode=true&characterEncoding=UTF-8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
       - SPRING_DATASOURCE_USERNAME=root
       - SPRING_DATASOURCE_PASSWORD=Hg19951030
+      # 显式指定 kubeconfig，供 StreamPark/Fabric8 提交 Flink Native K8s 作业
+      - KUBECONFIG=/root/.kube/config
     volumes:
       # 挂载 Docker socket，允许 StreamPark 管理容器
       - /var/run/docker.sock:/var/run/docker.sock
@@ -42,12 +46,18 @@ services:
       # 挂载自定义配置文件 - 使用 MySQL（Doris）作为元数据存储
       - ./streampark-config.yaml:/streampark/conf/config.yaml:ro
       # 挂载 MySQL 驱动到容器 lib 目录 - 支持 MySQL/Doris 连接
+      # 若本机 Maven 仓库中不是 8.3.0，请改路径或先 mvn dependency:copy 到该坐标
       - ~/.m2/repository/com/mysql/mysql-connector-j/8.3.0/mysql-connector-j-8.3.0.jar:/streampark/lib/mysql-connector-j-8.3.0.jar:ro
-      # 如果有 Kubernetes 配置，可以挂载
-      - ~/.kube:/root/.kube:ro
+      # Kubernetes：仅挂载“单一专用 kubeconfig”，避免目录内多文件导致上下文漂移。
+      # 默认建议：~/.kube/config-streampark-docker-desktop（可在 manage-streampark.sh 里通过
+      # STREAMPARK_KUBECONFIG 覆盖）
+      - ${STREAMPARK_KUBECONFIG}:/root/.kube/config:ro
       - ~/.ssh/id_ed25519:/root/.ssh/id_ed25519:ro
       - ~/.ssh/id_ed25519.pub:/root/.ssh/id_ed25519.pub:ro
       - ~/.ssh/known_hosts:/root/.ssh/known_hosts:ro
+    extra_hosts:
+      # 保证容器内 host.docker.internal 可解析（Linux Docker 环境也兼容）
+      - "host.docker.internal:host-gateway"
     privileged: true
     restart: unless-stopped
     networks:

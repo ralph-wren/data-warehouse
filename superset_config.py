@@ -1,5 +1,9 @@
 # Superset 配置文件
 import os
+import pymysql
+
+# 让 Superset 以 MySQLdb 方式识别 PyMySQL，保证 Doris(MySQL 协议)可在 UI 中选择
+pymysql.install_as_MySQLdb()
 
 # PostgreSQL 数据库连接
 SQLALCHEMY_DATABASE_URI = 'postgresql://superset:superset@superset-db:5432/superset'

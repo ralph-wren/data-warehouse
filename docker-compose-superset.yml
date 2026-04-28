@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # Superset 数据库 (PostgreSQL)
   superset-db:
@@ -25,7 +23,10 @@ services:
 
   # Superset 应用
   superset:
-    image: apache/superset:latest
+    build:
+      context: .
+      dockerfile: docker/superset/Dockerfile
+    image: data-warehouse-superset:latest
     container_name: superset
     depends_on:
       - superset-db
@@ -46,10 +47,6 @@ services:
       - /bin/sh
       - -c
       - |
-        # 安装系统依赖和 MySQL 驱动
-        apt-get update && apt-get install -y default-libmysqlclient-dev build-essential pkg-config &&
-        python -m ensurepip --upgrade &&
-        python -m pip install -q pymysql mysqlclient &&
         superset db upgrade &&
         superset fab create-admin --username admin --firstname Admin --lastname User --email admin@example.com --password admin || true &&
         superset init &&
